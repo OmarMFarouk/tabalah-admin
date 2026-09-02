@@ -1,0 +1,11 @@
+# Normalise to LF in the repo, as the backend repo already does.
+# Without this a Windows checkout commits CRLF and every file looks
+# modified on any other machine.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.zip binary
