@@ -29,6 +29,10 @@ dependencies:
   # Hands the guardian code to a parent over WhatsApp or email, rather than
   # leaving the front desk to retype it into whichever app they are using.
   url_launcher: ^6.3.1
+  # OSM tiles via flutter_map: google_maps_flutter has no Windows support,
+  # and this is pure Dart + network tiles so the desktop build stays plain.
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_test:

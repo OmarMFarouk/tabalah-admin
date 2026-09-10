@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../screens/attendance.dart';
 import '../screens/catalog.dart';
 import '../screens/comms.dart';
 import '../screens/dashboard.dart';
@@ -31,6 +32,7 @@ enum DestinationId {
   people,
   catalog,
   sessions,
+  attendance,
   finance,
   reports,
   performance,
@@ -155,6 +157,15 @@ class AppDestinations {
       build: () => const SessionsScreen(),
     ),
     AppDestination(
+      id: DestinationId.attendance,
+      icon: Icons.where_to_vote_rounded,
+      label: 'حضور الموظفين',
+      // Sits under the same permission as the rest of the people pages:
+      // whoever manages staff is who settles a disputed clock-in.
+      isVisible: () => Permissions.canSeePeople,
+      build: () => const AttendanceScreen(),
+    ),
+    AppDestination(
       id: DestinationId.finance,
       icon: Icons.payments_rounded,
       label: 'المالية',
@@ -206,7 +217,7 @@ class AppDestinations {
     NavGroup(
       label: 'الأشخاص',
       icon: Icons.people_alt_rounded,
-      children: [DestinationId.people],
+      children: [DestinationId.people, DestinationId.attendance],
     ),
     NavGroup(
       label: 'النادي',

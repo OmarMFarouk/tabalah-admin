@@ -144,7 +144,10 @@ class ApiClient {
       return ApiResponse.error('تعذّر الوصول للخادم — تحقّق من الاتصال.');
     }
     if (e is HandshakeException) {
-      return ApiResponse.error('تعذّر التحقّق من شهادة الأمان للخادم.');
+      // Include the cause. "Could not verify the certificate" was reported
+      // for failures that had nothing to do with certificates, which sent
+      // the diagnosis in the wrong direction for a day.
+      return ApiResponse.error('تعذّر إنشاء اتصال آمن بالخادم: ${e.message}');
     }
     return ApiResponse.error('حدث خطأ: $e');
   }

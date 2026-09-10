@@ -7,6 +7,10 @@ class AppEndPoints {
       'https://tabalahacademy.com/api/v1';
   static const String admin = '$endPoint/admin';
 
+  // ── Employee attendance (GPS clock-in) ──────
+  static const String employeeAttendances = '$admin/employee-attendances';
+  static const String geofence = '$admin/geofence';
+
   // ── Auth ────────────────────────────────────
   static const String login = '$endPoint/login';
   static const String logout = '$endPoint/logout';
