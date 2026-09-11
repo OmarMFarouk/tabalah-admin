@@ -62,7 +62,10 @@ WizardStyle=modern
 ; which is the first thing anyone installing this actually sees.
 WizardImageFile=wizard_large.bmp
 WizardSmallImageFile=wizard_small.bmp
-WizardImageStretch=no
+; Stretch, not crop. The banner is authored at the panel's own 164x314
+; aspect, so scaling is clean - `no` crops to the middle instead, which
+; turned the logo into a sliver.
+WizardImageStretch=yes
 
 ; The panel is Arabic-first, so the wizard should be too when available.
 ShowLanguageDialog=no
