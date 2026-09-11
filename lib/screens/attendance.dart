@@ -114,10 +114,34 @@ class _FencePaneState extends State<_FencePane> {
     _pin = LatLng(f.latitude, f.longitude);
     _radius = f.radiusMeters.toDouble();
 
-    // Centre on it, after the frame so the map is actually mounted.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _pin != null) _map.move(_pin!, 16);
-    });
+    // Frame it, after the frame so the map is actually mounted.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fitCircle());
+  }
+
+  /// Zoom so the whole fence is on screen.
+  ///
+  /// A fixed zoom cannot do this: the radius runs from 25m to 1km, and any
+  /// level that frames the small end puts the large end off the edges. The
+  /// bounds are computed from the circle itself, so the fit holds whatever
+  /// the radius is.
+  void _fitCircle() {
+    if (!mounted || _pin == null) return;
+
+    const geo = Distance();
+    // Corners of the circle's bounding box: the radius along the diagonal
+    // reaches the box corner, so the circle sits fully inside it.
+    final diagonal = _radius * 1.4143;
+    final ne = geo.offset(_pin!, diagonal, 45);
+    final sw = geo.offset(_pin!, diagonal, 225);
+
+    _map.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds(sw, ne),
+        // Keeps the ring off the pane edges, where the radius slider and
+        // the card border would otherwise clip it.
+        padding: const EdgeInsets.all(28),
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -166,7 +190,10 @@ class _FencePaneState extends State<_FencePane> {
               options: MapOptions(
                 initialCenter: centre,
                 initialZoom: _pin == null ? _fallbackZoom : 16,
-                onTap: (_, p) => setState(() => _pin = p),
+                onTap: (_, p) {
+                  setState(() => _pin = p);
+                  _fitCircle();
+                },
               ),
               children: [
                 TileLayer(
@@ -226,6 +253,7 @@ class _FencePaneState extends State<_FencePane> {
                   divisions: 39,
                   label: '${_radius.round()} م',
                   onChanged: (v) => setState(() => _radius = v),
+                  onChangeEnd: (_) => _fitCircle(),
                 ),
                 const SizedBox(height: 4),
                 FilledButton.icon(

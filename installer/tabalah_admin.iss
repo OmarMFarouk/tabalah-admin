@@ -58,6 +58,12 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 
+; The wizard's own artwork. Without these Inno paints its stock graphic,
+; which is the first thing anyone installing this actually sees.
+WizardImageFile=wizard_large.bmp
+WizardSmallImageFile=wizard_small.bmp
+WizardImageStretch=no
+
 ; The panel is Arabic-first, so the wizard should be too when available.
 ShowLanguageDialog=no
 
