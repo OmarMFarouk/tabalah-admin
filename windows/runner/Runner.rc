@@ -90,13 +90,13 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             // ===== BARMAJHA CUSTOMIZATION =====
-            VALUE "CompanyName", "Barmajha.com" "\0"
-            VALUE "FileDescription", "Tabalah Admin - Club Management System" "\0"
+            VALUE "CompanyName", "Tabalah Academy" "\0"
+            VALUE "FileDescription", "Tabalah Admin - tabalahacademy.com" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "TabalahAdmin" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Barmajha.com. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Tabalah Academy (tabalahacademy.com). All rights reserved." "\0"
             VALUE "OriginalFilename", "TabalahAdmin.exe" "\0"
-            VALUE "ProductName", "Tabala Admin System" "\0"
+            VALUE "ProductName", "Tabalah Admin" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
             // =================================
         END

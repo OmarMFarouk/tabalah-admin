@@ -26,6 +26,10 @@ class UserProfile {
   final List<Salary> salaries;
   final List<KpiRecord> kpiRecords;
 
+  /// Clock-in rows. Only employees have these - see UserProfileController,
+  /// which sends null rather than an empty list for everyone else.
+  final List<EmployeeClockIn> employeeAttendances;
+
   const UserProfile({
     this.user,
     this.role = '',
@@ -37,6 +41,7 @@ class UserProfile {
     this.ratings = const [],
     this.salaries = const [],
     this.kpiRecords = const [],
+    this.employeeAttendances = const [],
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -71,11 +76,14 @@ class UserProfile {
       ratings: list('ratings', SessionRating.fromJson),
       salaries: list('salaries', Salary.fromJson),
       kpiRecords: list('kpi_records', KpiRecord.fromJson),
+      employeeAttendances: list('employee_attendances', EmployeeClockIn.fromJson),
     );
   }
 
   bool get isPlayer => role == 'player';
   bool get isTrainer => role == 'trainer';
+  bool get isEmployee => role == 'employee';
+  bool get isAdminRole => role == 'admin' || role == 'super-admin';
   bool get isStaff =>
       role == 'employee' || role == 'admin' || role == 'super-admin';
 }
@@ -149,4 +157,31 @@ class ProfileStats {
       currentMembership == null ||
       (daysRemaining != null && daysRemaining! <= 7) ||
       pendingPaymentEnrollments > 0;
+}
+
+
+/// One GPS clock-in, as the panel shows it on an employee's profile.
+class EmployeeClockIn {
+  final String date;
+  final String checkedInAt;
+  final int distanceMeters;
+
+  const EmployeeClockIn({
+    required this.date,
+    required this.checkedInAt,
+    required this.distanceMeters,
+  });
+
+  factory EmployeeClockIn.fromJson(Map<String, dynamic> j) => EmployeeClockIn(
+        date: (j['date'] ?? '').toString(),
+        checkedInAt: (j['checked_in_at'] ?? '').toString(),
+        distanceMeters: int.tryParse('${j['distance_meters']}') ?? 0,
+      );
+
+  /// `2026-09-11T08:14:00Z` -> `08:14`. The API always sends ISO here, and
+  /// a bad value degrades to the raw string rather than throwing.
+  String get timeLabel =>
+      checkedInAt.length >= 16 ? checkedInAt.substring(11, 16) : checkedInAt;
+
+  String get dateLabel => date.length >= 10 ? date.substring(0, 10) : date;
 }

@@ -11,6 +11,10 @@ class AppEndPoints {
   static const String employeeAttendances = '$admin/employee-attendances';
   static const String geofence = '$admin/geofence';
 
+  /// Public on purpose - see AppReleaseController. The panel asks this
+  /// before anyone signs in.
+  static const String appRelease = '$endPoint/app-release/windows';
+
   // ── Auth ────────────────────────────────────
   static const String login = '$endPoint/login';
   static const String logout = '$endPoint/logout';

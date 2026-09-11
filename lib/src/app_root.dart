@@ -11,6 +11,8 @@ import '../screens/splash.dart';
 import '../services/apis/api_client.dart';
 import 'app_assets.dart';
 import 'app_colors.dart';
+import '../components/general/update_dialog.dart';
+import '../services/update_service.dart';
 import 'app_globals.dart';
 import 'app_presets.dart';
 
@@ -218,6 +220,27 @@ class _GateState extends State<_Gate> {
   Future<void> _restoreOnce() async {
     await AuthCubit.get(context).restoreSession();
     if (mounted) setState(() => _restoring = false);
+
+    // After the session, not before: the check is cheap and never throws,
+    // but a slow or unreachable server must not hold up the login screen.
+    _checkForUpdate();
+  }
+
+  /// Offer (or insist on) a newer build.
+  ///
+  /// Runs regardless of whether anyone is signed in - a forced update
+  /// usually ships because the API contract moved, and the client that most
+  /// needs it is the one that can no longer sign in.
+  Future<void> _checkForUpdate() async {
+    final update = await UpdateService.check();
+    if (update == null) return;
+
+    // The navigator key's own context, not this State's: it is the one that
+    // is still valid after the await, and its nullness is the real check.
+    final ctx = AppNavigator.navigatorKey.currentContext;
+    if (ctx == null || !ctx.mounted) return;
+
+    await UpdateDialog.show(ctx, update);
   }
 
   /// Which screen the app shows is a pure function of "is there a session",

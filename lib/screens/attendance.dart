@@ -82,16 +82,42 @@ class _FencePaneState extends State<_FencePane> {
   double _radius = 150;
   bool _saving = false;
 
+  /// Where the map opens when nothing has been saved yet.
+  static const _fallbackCentre = LatLng(20.0211744, 42.2572162);
+  static const _fallbackZoom = 14.16;
+
+  bool _adopted = false;
+
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  void initState() {
+    super.initState();
+    _adoptSavedFence();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FencePane old) {
+    super.didUpdateWidget(old);
+    // The fence arrives from the API *after* the first build, so adopting
+    // it only in initState left the saved pin invisible - which read as
+    // "my save did not work". Re-checked on every rebuild until taken.
+    _adoptSavedFence();
+  }
+
+  /// Take the saved fence once, then leave the pin alone: a background
+  /// reload while someone is dragging must not yank it back.
+  void _adoptSavedFence() {
+    if (_adopted) return;
     final f = widget.cubit.fence;
-    // Adopt the saved fence once, then leave the pin alone - a reload while
-    // someone is dragging must not yank it back.
-    if (f != null && _pin == null) {
-      _pin = LatLng(f.latitude, f.longitude);
-      _radius = f.radiusMeters.toDouble();
-    }
+    if (f == null) return;
+
+    _adopted = true;
+    _pin = LatLng(f.latitude, f.longitude);
+    _radius = f.radiusMeters.toDouble();
+
+    // Centre on it, after the frame so the map is actually mounted.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pin != null) _map.move(_pin!, 16);
+    });
   }
 
   Future<void> _save() async {
@@ -115,7 +141,7 @@ class _FencePaneState extends State<_FencePane> {
 
   @override
   Widget build(BuildContext context) {
-    final centre = _pin ?? const LatLng(24.7135517, 46.6752957);
+    final centre = _pin ?? _fallbackCentre;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -139,7 +165,7 @@ class _FencePaneState extends State<_FencePane> {
               mapController: _map,
               options: MapOptions(
                 initialCenter: centre,
-                initialZoom: 15,
+                initialZoom: _pin == null ? _fallbackZoom : 16,
                 onTap: (_, p) => setState(() => _pin = p),
               ),
               children: [

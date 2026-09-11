@@ -46,3 +46,6 @@ app.*.map.json
 
 # Packaged build output, not source
 admin.zip
+
+# Installer output — a build artifact, published to the server not the repo
+dist/

@@ -155,10 +155,122 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   // The role switch lives here and nowhere else.
+  //
+  // Each role sees only what its job produces. Employees and admins used to
+  // share one section list, which put KPI targets and salary tables on the
+  // owner's own profile and left an employee's clock-ins nowhere.
   List<Widget> _sections(BuildContext ctx, ProfileCubit c, UserProfile p) {
     if (p.isPlayer) return _playerSections(ctx, c, p);
     if (p.isTrainer) return _trainerSections(p);
-    return _staffSections(p);
+    if (p.isEmployee) return _employeeSections(p);
+    return _adminSections(p);
+  }
+
+  // ── Employee — الموظف ───────────────────────
+  // Attendance first: it is the thing this role is measured on and the
+  // reason anyone opens an employee's profile.
+  List<Widget> _employeeSections(UserProfile p) {
+    final rows = p.employeeAttendances;
+    final thisMonth = rows
+        .where((r) => r.dateLabel.startsWith(
+            DateTime.now().toIso8601String().substring(0, 7)))
+        .length;
+
+    return [
+      Row(
+        children: [
+          StatCard(
+            label: 'أيام الحضور هذا الشهر',
+            value: '$thisMonth',
+            sub: 'من إجمالي ${rows.length} يوم مسجّل',
+            icon: Icons.where_to_vote_rounded,
+            color: GlobalColors.green,
+          ),
+          const SizedBox(width: 12),
+          StatCard(
+            label: 'آخر حضور',
+            value: rows.isEmpty ? '—' : rows.first.dateLabel,
+            sub: rows.isEmpty ? 'لم يسجّل بعد' : 'الساعة ${rows.first.timeLabel}',
+            icon: Icons.schedule_rounded,
+            color: GlobalColors.blue,
+          ),
+          const SizedBox(width: 12),
+          StatCard(
+            label: 'إجمالي الرواتب',
+            value:
+                '${p.stats.salariesTotal.toStringAsFixed(0)} ${AppGlobals.currency}',
+            sub: '${p.stats.salariesCount} دفعة',
+            icon: Icons.account_balance_wallet_rounded,
+            color: GlobalColors.gold,
+          ),
+        ],
+      ),
+      const SizedBox(height: 20),
+      _Section(
+        title: 'سجل الحضور',
+        icon: Icons.where_to_vote_rounded,
+        child: _MiniTable(
+          headers: const ['التاريخ', 'وقت التسجيل', 'المسافة من المركز'],
+          rows: rows
+              .map((r) => [r.dateLabel, r.timeLabel, '${r.distanceMeters} م'])
+              .toList(),
+          emptyLabel: 'لا يوجد حضور مسجّل',
+        ),
+      ),
+      const SizedBox(height: 16),
+      _salarySection(p),
+    ];
+  }
+
+  // ── Admin / owner — الإدارة ─────────────────
+  // No KPI or salary tables: those describe staff who are measured and
+  // paid through the club, not the people running it. What matters on an
+  // admin's own profile is the account itself, which the header carries.
+  List<Widget> _adminSections(UserProfile p) {
+    return [
+      Row(
+        children: [
+          StatCard(
+            label: 'الدور',
+            value: p.user?.roleAr ?? '—',
+            sub: 'صلاحيات لوحة التحكم',
+            icon: Icons.admin_panel_settings_rounded,
+            color: GlobalColors.blue,
+          ),
+          const SizedBox(width: 12),
+          StatCard(
+            label: 'آخر ظهور',
+            value: p.user?.presenceAr ?? '—',
+            sub: 'حالة الحساب',
+            icon: Icons.schedule_rounded,
+            color: GlobalColors.green,
+          ),
+        ],
+      ),
+      if (p.kpiRecords.isNotEmpty) ...[
+        const SizedBox(height: 20),
+        _Section(
+          title: 'سجلات الأداء',
+          icon: Icons.speed_rounded,
+          child: _MiniTable(
+            headers: const ['المؤشر', 'المستهدف', 'المحقق', 'الفترة'],
+            rows: p.kpiRecords
+                .map((x) => [
+                      x.metric ?? '—',
+                      x.target?.toStringAsFixed(1) ?? '—',
+                      x.actual?.toStringAsFixed(1) ?? '—',
+                      x.period ?? '—',
+                    ])
+                .toList(),
+            emptyLabel: 'لا توجد سجلات أداء',
+          ),
+        ),
+      ],
+      if (p.salaries.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        _salarySection(p),
+      ],
+    ];
   }
 
   // ── Member — العضو ──────────────────────────
@@ -353,63 +465,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   // ── Staff — الموظفون ────────────────────────
-  List<Widget> _staffSections(UserProfile p) {
-    final s = p.stats;
-    return [
-      Row(
-        children: [
-          StatCard(
-            label: 'متوسط الإنجاز',
-            value: s.averageAchievement == null
-                ? '—'
-                : '${s.averageAchievement!.toStringAsFixed(0)}%',
-            sub: '${s.kpiRecordsCount} سجل أداء',
-            icon: Icons.speed_rounded,
-            color: _rateColor(s.averageAchievement),
-          ),
-          const SizedBox(width: 12),
-          StatCard(
-            label: 'إجمالي الرواتب',
-            value:
-                '${s.salariesTotal.toStringAsFixed(0)} ${AppGlobals.currency}',
-            sub: '${s.salariesCount} دفعة',
-            icon: Icons.account_balance_wallet_rounded,
-            color: GlobalColors.green,
-          ),
-          const SizedBox(width: 12),
-          StatCard(
-            label: 'آخر راتب',
-            value: s.lastSalaryAt ?? '—',
-            sub: 'تاريخ الصرف',
-            icon: Icons.event_rounded,
-            color: GlobalColors.blue,
-          ),
-        ],
-      ),
-      const SizedBox(height: 20),
-      _Section(
-        title: 'سجلات الأداء',
-        icon: Icons.speed_rounded,
-        child: _MiniTable(
-          headers: const ['المؤشر', 'المستهدف', 'المحقق', 'الفترة'],
-          rows: p.kpiRecords
-              .map(
-                (x) => [
-                  x.metric ?? '—',
-                  x.target?.toStringAsFixed(1) ?? '—',
-                  x.actual?.toStringAsFixed(1) ?? '—',
-                  x.period ?? '—',
-                ],
-              )
-              .toList(),
-          emptyLabel: 'لا توجد سجلات أداء',
-        ),
-      ),
-      const SizedBox(height: 16),
-      _salarySection(p),
-    ];
-  }
-
   Widget _salarySection(UserProfile p) => _Section(
     title: 'الرواتب',
     icon: Icons.account_balance_wallet_rounded,

@@ -33,6 +33,10 @@ dependencies:
   # and this is pure Dart + network tiles so the desktop build stays plain.
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
+  # Auto-update: read our own version, and put the downloaded installer
+  # somewhere Windows will let us execute it.
+  package_info_plus: ^8.1.1
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
