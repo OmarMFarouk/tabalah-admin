@@ -2,7 +2,7 @@ import '../../src/app_endpoints.dart';
 import 'api_client.dart';
 
 // ─────────────────────────────────────────────
-//  FINANCE API — المدفوعات ووسائل الدفع والتسجيلات
+//  FINANCE API — المدفوعات ووسائل الدفع والاشتراكات
 //  Taking money at the desk, the catalogue of
 //  ways to take it, and the sign-ups it pays for.
 // ─────────────────────────────────────────────
@@ -92,7 +92,7 @@ class FinanceApi {
   // destroy route — a mistake is refunded through changeStatus and
   // re-recorded. Calling DELETE here only ever returned 405.
 
-  // ── Enrollments — التسجيلات ─────────────────
+  // ── Enrollments — الاشتراكات ─────────────────
   Future<ApiResponse> fetchEnrollments({
     dynamic userId,
     dynamic membershipId,

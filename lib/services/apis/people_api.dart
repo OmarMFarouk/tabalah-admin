@@ -2,7 +2,7 @@ import '../../src/app_endpoints.dart';
 import 'api_client.dart';
 
 // ─────────────────────────────────────────────
-//  PEOPLE API — الحسابات والأشخاص
+//  PEOPLE API — الحسابات والأفراد
 //  Accounts, staff, coaches and members. Every
 //  role is readable by all staff; writes are
 //  gated server-side by policy.
@@ -124,9 +124,15 @@ class PeopleApi {
     String? q,
     int page = 1,
     int perPage = 15,
+    bool healthOnly = false,
   }) => ApiClient.get(
     AppEndPoints.players,
-    query: {'q': q, 'page': page, 'per_page': perPage},
+    query: {
+      'q': q,
+      'page': page,
+      'per_page': perPage,
+      if (healthOnly) 'health_only': 1,
+    },
   );
 
   Future<ApiResponse> showPlayer(dynamic id) =>

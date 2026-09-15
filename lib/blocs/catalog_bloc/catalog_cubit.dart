@@ -18,7 +18,7 @@ enum CatalogTab { memberships, sports, schedules }
 
 extension CatalogTabX on CatalogTab {
   String get label => switch (this) {
-    CatalogTab.memberships => 'الاشتراكات',
+    CatalogTab.memberships => 'الباقات',
     CatalogTab.sports => 'الرياضات',
     CatalogTab.schedules => 'المواعيد',
   };
@@ -314,7 +314,7 @@ class CatalogCubit extends Cubit<AppStates> {
   Future<void> deleteSport(int id) =>
       _write(() => _api.deleteSport(id), 'تم حذف الرياضة.');
 
-  // ── Memberships — الاشتراكات ────────────────
+  // ── Memberships — الباقات ────────────────
   Future<void> saveMembership({int? id}) {
     final data = Membership(
       name: nameCont.text.trim(),
@@ -354,13 +354,13 @@ class CatalogCubit extends Cubit<AppStates> {
           fallback: res,
         );
       },
-      id == null ? 'تمت إضافة الاشتراك.' : 'تم حفظ التعديل.',
+      id == null ? 'تمت إضافة الباقة.' : 'تم حفظ التعديل.',
     );
   }
 
   // Cascades to schedules, sessions and enrollments.
   Future<void> deleteMembership(int id) =>
-      _write(() => _api.deleteMembership(id), 'تم حذف الاشتراك.');
+      _write(() => _api.deleteMembership(id), 'تم حذف الباقة.');
 
   // ── Schedules — المواعيد ────────────────────
   Future<void> saveSchedule({int? id}) {

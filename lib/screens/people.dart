@@ -22,7 +22,7 @@ import 'guardian_share.dart';
 import 'profile.dart';
 
 // ─────────────────────────────────────────────
-//  PEOPLE — الأشخاص
+//  PEOPLE — الأفراد
 //  Accounts, members, coaches and staff. Four
 //  API folders, one page: the same person seen
 //  from four angles.
@@ -72,7 +72,7 @@ class _PeopleView extends StatelessWidget {
               return Column(
                 children: [
                   PageHeader(
-                    title: 'الأشخاص',
+                    title: 'الأفراد',
                     icon: Icons.people_alt_rounded,
                     isLoading: loading,
                     onRefresh: cubit.fetch,
@@ -195,6 +195,12 @@ class _PeopleView extends StatelessWidget {
                     isActive: c.roleFilter == (r.isEmpty ? null : r),
                     onTap: () => c.setFilter(role: r),
                   ),
+                ),
+              if (c.tab == PeopleTab.members)
+                AppFilterChip(
+                  label: 'ذوو الحالات الصحية فقط',
+                  isActive: c.healthOnly,
+                  onTap: c.toggleHealthOnly,
                 ),
               if (c.tab == PeopleTab.trainers || c.tab == PeopleTab.staff)
                 ...['', 'active', 'inactive'].map(
@@ -340,6 +346,7 @@ class _PeopleView extends StatelessWidget {
             AppColumn('الطول'),
             AppColumn('الوزن'),
             AppColumn('كتلة الجسم'),
+            AppColumn('الحالة الصحية', flex: 2),
             AppColumn('كود ولي الأمر', flex: 2),
             AppColumn('اتصال الطوارئ', flex: 2),
             AppColumn('إجراءات', flex: 2),
@@ -372,6 +379,24 @@ class _PeopleView extends StatelessWidget {
                 color: GlobalColors.accentSoft,
                 weight: FontWeight.w700,
               ),
+              // The mark a coach or the desk has to notice. The note itself
+              // is in the tooltip, for those allowed to read it.
+              p.hasHealthCondition
+                  ? Expanded(
+                      flex: 2,
+                      child: Center(
+                        child: Tooltip(
+                          message: p.healthCondition ??
+                              'تفاصيل الحالة متاحة لأصحاب صلاحية الاطلاع على الحالة الصحية',
+                          child: StatusBadge(
+                            label: 'حالة صحية خاصة',
+                            color: GlobalColors.red,
+                            wrap: false,
+                          ),
+                        ),
+                      ),
+                    )
+                  : textCell(rc, '—', flex: 2),
               // The code is meant to be read out or copied at the desk, so
               // it is shown in the row itself rather than hidden behind a
               // dialog. Greyed out when the portal is switched off, which
@@ -397,7 +422,7 @@ class _PeopleView extends StatelessWidget {
                 ActionBtn(
                   icon: Icons.edit_rounded,
                   color: GlobalColors.accentSoft,
-                  tooltip: 'تعديل البيانات البدنية',
+                  tooltip: 'تعديل البيانات البدنية والصحية',
                   enabled: Permissions.canManageUsers,
                   onTap: () => _openForm(ctx, c, player: p),
                 ),
@@ -418,7 +443,7 @@ class _PeopleView extends StatelessWidget {
           columns: const [
             AppColumn('المدرب', flex: 3),
             AppColumn('الرياضة'),
-            AppColumn('الاشتراكات'),
+            AppColumn('الباقات'),
             AppColumn('التقييم'),
             AppColumn('الحالة'),
             AppColumn('إجراءات'),
@@ -484,7 +509,7 @@ class _PeopleView extends StatelessWidget {
                   color: GlobalColors.red,
                   // The server refuses while the coach still has classes.
                   tooltip: (t.membershipsCount ?? 0) > 0
-                      ? 'لا يمكن الحذف — لديه اشتراكات قائمة'
+                      ? 'لا يمكن الحذف — لديه باقات قائمة'
                       : 'حذف',
                   enabled:
                       Permissions.canManageTrainers && (t.membershipsCount ?? 0) == 0,
@@ -616,6 +641,7 @@ class _PeopleView extends StatelessWidget {
       c.heightCont.text = player.height?.toString() ?? '';
       c.weightCont.text = player.weight?.toString() ?? '';
       c.emergencyCont.text = player.emergencyContact ?? '';
+      c.healthCont.text = player.healthCondition ?? '';
     }
     if (trainer != null) {
       c.nameCont.text = trainer.name ?? '';
@@ -625,6 +651,8 @@ class _PeopleView extends StatelessWidget {
       c.bioCont.text = trainer.bio ?? '';
       c.formSportId = trainer.sportId;
       c.formStatus = trainer.status ?? 'active';
+      c.salaryCont.text = trainer.salary?.toStringAsFixed(0) ?? '';
+      c.fillPayroll(trainer);
     }
     if (employee != null) {
       c.nameCont.text = employee.name!;
@@ -633,6 +661,7 @@ class _PeopleView extends StatelessWidget {
       c.salaryCont.text = employee.salary?.toString() ?? '';
       c.formAccessRoleId = employee.accessRoleId;
       c.formStatus = employee.status ?? 'active';
+      c.fillPayroll(employee);
     }
 
     showDialog(
@@ -815,7 +844,7 @@ class _PeopleView extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-//  PEOPLE FORM — نموذج الأشخاص
+//  PEOPLE FORM — نموذج الأفراد
 //  One dialog serving four tabs; the fields
 //  shown follow the role being edited.
 // ─────────────────────────────────────────────
@@ -939,8 +968,18 @@ class _PeopleFormState extends State<_PeopleForm> {
               icon: Icons.emergency_rounded,
               hint: '05XXXXXXXX',
             ),
+            if (Permissions.canSeeHealth) ...[
+              gap,
+              AppField(
+                controller: c.healthCont,
+                label: 'الحالة الصحية الخاصة',
+                icon: Icons.medical_information_rounded,
+                maxLines: 3,
+                hint: 'اتركه فارغاً إن لم توجد حالة — يظهر للمدرب ولأصحاب الصلاحية فقط',
+              ),
+            ],
           ]
-          // ── Members: physical details only ───
+          // ── Members: physical and health details ───
           else if (isPlayerEdit) ...[
             dialogRow([
               AppField(
@@ -963,6 +1002,16 @@ class _PeopleFormState extends State<_PeopleForm> {
               icon: Icons.emergency_rounded,
               hint: '05XXXXXXXX',
             ),
+            if (Permissions.canSeeHealth) ...[
+              gap,
+              AppField(
+                controller: c.healthCont,
+                label: 'الحالة الصحية الخاصة',
+                icon: Icons.medical_information_rounded,
+                maxLines: 3,
+                hint: 'اتركه فارغاً إن لم توجد حالة — يظهر للمدرب ولأصحاب الصلاحية فقط',
+              ),
+            ],
           ]
           // ── Staff hiring / editing ───────────
           else if (isStaff) ...[
@@ -1035,6 +1084,7 @@ class _PeopleFormState extends State<_PeopleForm> {
               ),
             ]),
             gap,
+            if (Permissions.canSeeHr) ..._payrollFields(c),
             _statusPicker(c, setState),
           ]
           // ── Trainers ─────────────────────────
@@ -1098,6 +1148,16 @@ class _PeopleFormState extends State<_PeopleForm> {
               maxLines: 3,
             ),
             gap,
+            if (Permissions.canSeeHr) ...[
+              AppField(
+                controller: c.salaryCont,
+                label: 'الراتب الشهري',
+                icon: Icons.payments_rounded,
+                isNumber: true,
+              ),
+              gap,
+              ..._payrollFields(c),
+            ],
             _statusPicker(c, setState),
           ]
           // ── Accounts ─────────────────────────
@@ -1249,6 +1309,60 @@ class _PeopleFormState extends State<_PeopleForm> {
       ),
     );
   }
+
+  /// What an employment letter states. Drawn only for HR, the only accounts
+  /// the server accepts these fields from.
+  List<Widget> _payrollFields(PeopleCubit c) => [
+    _formSection('التوظيف والحساب البنكي', Icons.account_balance_rounded),
+    dialogRow([
+      DateField(
+        value: c.formHiredAt,
+        label: 'تاريخ الالتحاق',
+        onPicked: (v) => setState(() => c.formHiredAt = v),
+      ),
+      AppField(
+        controller: c.bankNameCont,
+        label: 'اسم البنك',
+        icon: Icons.account_balance_rounded,
+        hint: 'مثال: مصرف الراجحي',
+      ),
+    ]),
+    gap,
+    dialogRow([
+      AppField(
+        controller: c.accountNumberCont,
+        label: 'رقم الحساب',
+        icon: Icons.numbers_rounded,
+      ),
+      AppField(
+        controller: c.ibanCont,
+        label: 'رقم الآيبان',
+        icon: Icons.credit_card_rounded,
+        hint: 'SA + 22 رقماً',
+      ),
+    ]),
+    gap,
+  ];
+
+  Widget _formSection(String title, IconData icon) => Padding(
+    padding: const EdgeInsets.only(bottom: 12, top: 2),
+    child: Row(
+      children: [
+        Icon(icon, size: 16, color: GlobalColors.accentSoft),
+        const SizedBox(width: 6),
+        Text(
+          title,
+          style: TextStyle(
+            color: GlobalColors.accentSoft,
+            fontWeight: FontWeight.w700,
+            fontSize: 12.5,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: Divider(color: GlobalColors.border(context))),
+      ],
+    ),
+  );
 
   String _title(bool isEdit, bool isPlayer, bool isTrainer, bool isStaff) {
     if (isPlayer) return 'تعديل بيانات العضو';

@@ -4,7 +4,9 @@ import '../screens/attendance.dart';
 import '../screens/catalog.dart';
 import '../screens/comms.dart';
 import '../screens/dashboard.dart';
+import '../screens/evaluations.dart';
 import '../screens/finance.dart';
+import '../screens/overtime.dart';
 import '../screens/people.dart';
 import '../screens/performance.dart';
 import '../screens/reports.dart';
@@ -15,27 +17,27 @@ import 'app_permissions.dart';
 // ─────────────────────────────────────────────
 //  DESTINATIONS — صفحات اللوحة
 //
-//  One list drives both the nav bar and the
-//  PageView, which is the point: they used to be
-//  two hard-coded lists that had to stay
-//  index-aligned by hand, and a page hidden by
-//  permission in one but not the other would have
-//  shifted every index after it.
+//  One list drives both the sidebar and the
+//  PageView, so the two cannot drift out of index
+//  step when a page is hidden by permission.
 //
-//  A page whose `permission` the account does not
-//  hold is not built at all — hiding the nav entry
+//  A page whose permission the account does not
+//  hold is not built at all — hiding the entry
 //  while leaving the page reachable would just
 //  move the failure to a 403 on load.
 // ─────────────────────────────────────────────
+
 enum DestinationId {
   dashboard,
   people,
+  evaluations,
   catalog,
   sessions,
   attendance,
+  overtime,
+  performance,
   finance,
   reports,
-  performance,
   comms,
   settings,
 }
@@ -48,7 +50,6 @@ class AppDestination {
   /// Whether the signed-in account may open this page. Evaluated fresh on
   /// every build, so a role change takes effect without a restart.
   final bool Function() isVisible;
-
   final Widget Function() build;
 
   const AppDestination({
@@ -60,69 +61,48 @@ class AppDestination {
   });
 }
 
+// ─────────────────────────────────────────────
+//  SECTIONS — أقسام القائمة الجانبية
+//
+//  Grouped by the job being done, not the data
+//  model: HR is one person's day (clock-in,
+//  overtime, pay), the academy is what is offered
+//  and when it meets.
+// ─────────────────────────────────────────────
 
-// ─────────────────────────────────────────────
-//  NAV GROUPS — تجميع الصفحات في القائمة العلوية
-//
-//  Nine top-level entries did not fit the bar at
-//  1280px and left it scrolling sideways, which is
-//  a bad way to find anything. Related pages are
-//  gathered under one entry instead, so the bar
-//  carries six.
-//
-//  The grouping is by *question asked*, not by
-//  data model: "what do we offer and when does it
-//  meet" is one thought, "how are we doing" is
-//  another. That is also why التقارير sits with
-//  الأداء rather than under المالية — most of it
-//  is membership, attendance and trainer load,
-//  and only one block is money.
-// ─────────────────────────────────────────────
-class NavGroup {
+class NavSection {
   final String label;
   final IconData icon;
   final List<DestinationId> children;
 
-  const NavGroup({
+  const NavSection({
     required this.label,
     required this.icon,
     required this.children,
   });
 }
 
-/// One rendered entry in the top bar: either a page, or a menu of pages.
-class NavEntry {
-  final String label;
-  final IconData icon;
-
-  /// Index into [AppDestinations.visible] when this is a single page,
-  /// or -1 when it is a menu.
-  final int index;
-
-  final List<NavChild> children;
-
-  const NavEntry({
-    required this.label,
-    required this.icon,
-    required this.index,
-    this.children = const [],
-  });
-
-  bool get isMenu => children.isNotEmpty;
-}
-
-class NavChild {
+/// One page in the sidebar, pointing at its index in [AppDestinations.visible].
+class NavItem {
   final int index;
   final IconData icon;
   final String label;
 
-  const NavChild({
-    required this.index,
-    required this.icon,
-    required this.label,
-  });
+  const NavItem({required this.index, required this.icon, required this.label});
 }
 
+/// A section after permission filtering. Never empty.
+class NavSectionEntry {
+  final String label;
+  final IconData icon;
+  final List<NavItem> items;
+
+  const NavSectionEntry({
+    required this.label,
+    required this.icon,
+    required this.items,
+  });
+}
 
 class AppDestinations {
   AppDestinations._();
@@ -130,7 +110,7 @@ class AppDestinations {
   static final List<AppDestination> all = [
     AppDestination(
       id: DestinationId.dashboard,
-      icon: Icons.dashboard_rounded,
+      icon: Icons.space_dashboard_rounded,
       label: 'الرئيسية',
       isVisible: () => Permissions.canSeeDashboard,
       build: () => const DashboardScreen(),
@@ -138,14 +118,21 @@ class AppDestinations {
     AppDestination(
       id: DestinationId.people,
       icon: Icons.people_alt_rounded,
-      label: 'الأشخاص',
+      label: 'الأفراد',
       isVisible: () => Permissions.canSeePeople,
       build: () => const PeopleScreen(),
     ),
     AppDestination(
+      id: DestinationId.evaluations,
+      icon: Icons.star_rate_rounded,
+      label: 'التقييمات',
+      isVisible: () => Permissions.canSeeEvaluations,
+      build: () => const EvaluationsScreen(),
+    ),
+    AppDestination(
       id: DestinationId.catalog,
       icon: Icons.card_membership_rounded,
-      label: 'الاشتراكات',
+      label: 'الباقات والرياضات',
       isVisible: () => Permissions.canSeeCatalog,
       build: () => const CatalogScreen(),
     ),
@@ -160,10 +147,22 @@ class AppDestinations {
       id: DestinationId.attendance,
       icon: Icons.where_to_vote_rounded,
       label: 'حضور الموظفين',
-      // Sits under the same permission as the rest of the people pages:
-      // whoever manages staff is who settles a disputed clock-in.
-      isVisible: () => Permissions.canSeePeople,
+      isVisible: () => Permissions.canSeeHr,
       build: () => const AttendanceScreen(),
+    ),
+    AppDestination(
+      id: DestinationId.overtime,
+      icon: Icons.more_time_rounded,
+      label: 'الساعات الإضافية',
+      isVisible: () => Permissions.canSeeHr,
+      build: () => const OvertimeScreen(),
+    ),
+    AppDestination(
+      id: DestinationId.performance,
+      icon: Icons.insights_rounded,
+      label: 'الأداء والرواتب',
+      isVisible: () => Permissions.canSeePerformance,
+      build: () => const PerformanceScreen(),
     ),
     AppDestination(
       id: DestinationId.finance,
@@ -180,13 +179,6 @@ class AppDestinations {
       build: () => const ReportsScreen(),
     ),
     AppDestination(
-      id: DestinationId.performance,
-      icon: Icons.insights_rounded,
-      label: 'الأداء',
-      isVisible: () => Permissions.canSeePerformance,
-      build: () => const PerformanceScreen(),
-    ),
-    AppDestination(
       id: DestinationId.comms,
       icon: Icons.campaign_rounded,
       label: 'المراسلات',
@@ -196,125 +188,91 @@ class AppDestinations {
     AppDestination(
       id: DestinationId.settings,
       icon: Icons.shield_rounded,
-      label: 'الصلاحيات',
-      isVisible: () =>
-          Permissions.canSeeRoles || Permissions.canSeeAudit,
+      label: 'الأدوار والصلاحيات',
+      isVisible: () => Permissions.canSeeRoles || Permissions.canSeeAudit,
       build: () => const SettingsScreen(),
     ),
   ];
 
-  /// How the top bar gathers those destinations.
-  ///
-  /// A destination not named here still appears, on its own, in `all` order —
-  /// so adding a page and forgetting this list degrades to the old behaviour
-  /// rather than hiding it.
-  static const List<NavGroup> groups = [
-    NavGroup(
+  static const List<NavSection> sections = [
+    NavSection(
       label: 'الرئيسية',
-      icon: Icons.dashboard_rounded,
+      icon: Icons.home_rounded,
       children: [DestinationId.dashboard],
     ),
-    NavGroup(
-      label: 'الأشخاص',
-      icon: Icons.people_alt_rounded,
-      children: [DestinationId.people, DestinationId.attendance],
+    NavSection(
+      label: 'الأفراد',
+      icon: Icons.groups_rounded,
+      children: [DestinationId.people, DestinationId.evaluations],
     ),
-    NavGroup(
-      label: 'النادي',
-      icon: Icons.card_membership_rounded,
+    NavSection(
+      label: 'الأكاديمية',
+      icon: Icons.sports_soccer_rounded,
       children: [DestinationId.catalog, DestinationId.sessions],
     ),
-    NavGroup(
-      label: 'المالية',
-      icon: Icons.payments_rounded,
-      children: [DestinationId.finance],
+    NavSection(
+      label: 'الموارد البشرية',
+      icon: Icons.badge_rounded,
+      children: [
+        DestinationId.attendance,
+        DestinationId.overtime,
+        DestinationId.performance,
+      ],
     ),
-    NavGroup(
-      label: 'التقارير والأداء',
-      icon: Icons.query_stats_rounded,
-      children: [DestinationId.reports, DestinationId.performance],
+    NavSection(
+      label: 'المالية والتقارير',
+      icon: Icons.account_balance_wallet_rounded,
+      children: [DestinationId.finance, DestinationId.reports],
     ),
-    NavGroup(
+    NavSection(
       label: 'الإدارة',
-      icon: Icons.tune_rounded,
+      icon: Icons.admin_panel_settings_rounded,
       children: [DestinationId.comms, DestinationId.settings],
     ),
   ];
 
-  /// The destinations this account may open, in nav order.
+  /// The destinations this account may open, in sidebar order.
   static List<AppDestination> visible() =>
       all.where((d) => d.isVisible()).toList();
 
-  /// The top bar's entries, after permission filtering.
-  ///
-  /// Two rules that matter:
-  ///
-  /// * A group whose children are all hidden disappears entirely — no empty
-  ///   menu to open.
-  /// * A group down to **one** visible child renders as a plain item, not a
-  ///   menu. A dropdown holding a single entry is two clicks for what should
-  ///   be one, and it happens often here: a front-desk account that can see
-  ///   المراسلات but not الصلاحيات would otherwise get exactly that.
-  static List<NavEntry> navEntries() {
+  /// The sidebar's sections after permission filtering. A section whose pages
+  /// are all hidden disappears; a page no section names is appended under
+  /// "أخرى" rather than silently dropped.
+  static List<NavSectionEntry> navSections() {
     final shown = visible();
-    final entries = <NavEntry>[];
-    final grouped = <DestinationId>{};
+    final out = <NavSectionEntry>[];
+    final placed = <DestinationId>{};
 
-    for (final group in groups) {
-      final children = <NavChild>[];
-
-      for (final id in group.children) {
-        grouped.add(id);
+    for (final section in sections) {
+      final items = <NavItem>[];
+      for (final id in section.children) {
+        placed.add(id);
         final index = shown.indexWhere((d) => d.id == id);
         if (index < 0) continue;
-
-        final dest = shown[index];
-        children.add(
-          NavChild(index: index, icon: dest.icon, label: dest.label),
+        items.add(
+          NavItem(index: index, icon: shown[index].icon, label: shown[index].label),
         );
       }
-
-      if (children.isEmpty) continue;
-
-      if (children.length == 1) {
-        entries.add(
-          NavEntry(
-            // Keep the page's own name, not the group's: "النادي" on its own
-            // is vaguer than "الحصص" when it is the only thing in there.
-            label: children.first.label,
-            icon: children.first.icon,
-            index: children.first.index,
-          ),
-        );
-      } else {
-        entries.add(
-          NavEntry(
-            label: group.label,
-            icon: group.icon,
-            index: -1,
-            children: children,
-          ),
-        );
+      if (items.isNotEmpty) {
+        out.add(NavSectionEntry(label: section.label, icon: section.icon, items: items));
       }
     }
 
-    // Anything the groups forgot, appended rather than dropped.
-    for (var i = 0; i < shown.length; i++) {
-      if (grouped.contains(shown[i].id)) continue;
-      entries.add(
-        NavEntry(label: shown[i].label, icon: shown[i].icon, index: i),
-      );
+    final rest = [
+      for (var i = 0; i < shown.length; i++)
+        if (!placed.contains(shown[i].id))
+          NavItem(index: i, icon: shown[i].icon, label: shown[i].label),
+    ];
+    if (rest.isNotEmpty) {
+      out.add(NavSectionEntry(label: 'أخرى', icon: Icons.more_horiz_rounded, items: rest));
     }
 
-    return entries;
+    return out;
   }
 
-  /// Where [id] sits in the *visible* list, or -1 when it is hidden.
-  ///
-  /// Screens jump between tabs by id rather than by a hard-coded index,
-  /// because the index of "المالية" now depends on which pages the account
-  /// can see. A -1 means "you cannot go there", and callers skip the jump
-  /// rather than landing somewhere arbitrary.
+  /// Where [id] sits in the *visible* list, or -1 when it is hidden. Screens
+  /// jump between pages by id because the index depends on what the account
+  /// can see.
   static int indexOf(DestinationId id) =>
       visible().indexWhere((d) => d.id == id);
 }

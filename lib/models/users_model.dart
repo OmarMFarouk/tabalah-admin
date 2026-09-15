@@ -9,6 +9,7 @@ import 'paginated_model.dart';
 //  `user_name`, `user_role`, `user_joined_at` — so each parser here
 //  normalises through `unprefix` before reading anything.
 // ─────────────────────────────────────────────
+
 class User {
   int? userId;
 
@@ -21,9 +22,9 @@ class User {
   /// on membership detail, so leaving this blank is what produces a screen
   /// that is English apart from the person's name.
   String? nameEn;
-
   String? email;
   String? phone;
+
   /// The tier: which app this account may open. Distinct from
   /// [accessRoleName], which is the named permission bundle.
   String? role;
@@ -38,12 +39,10 @@ class User {
   /// account is running on its tier default.
   int? accessRoleId;
   String? accessRoleName;
-
   String? avatar;
   String? createdAt;
   bool isOnline;
   String? lastSeen;
-
   PlayerProfile? player;
   TrainerProfile? trainer;
   EmployeeProfile? employee;
@@ -69,7 +68,6 @@ class User {
 
   factory User.fromJson(Map<String, dynamic> raw) {
     final json = unprefix(raw, ['user']);
-
     return User(
       userId: asInt(json['id']),
       // `name_ar` is the raw primary column; `name` is whatever the API
@@ -88,7 +86,6 @@ class User {
       createdAt: asDate(json['joined_at'] ?? json['created_at']),
       isOnline: asBool(json['is_online']),
       lastSeen: asString(json['last_seen']),
-
       // The profile blocks arrive nested on the account row and carry no
       // account of their own, so hand each one its parent.
       player: raw['player'] is Map
@@ -206,6 +203,7 @@ class User {
   bool get isAdmin => role == 'admin' || isOwner;
   bool get isStaff => isAdmin || role == 'employee';
   bool get hasAvatar => avatar != null && avatar!.isNotEmpty;
+
   String get initial =>
       (name != null && name!.isNotEmpty) ? name!.substring(0, 1) : '؟';
 
@@ -232,21 +230,45 @@ class User {
 //  `_shape` returns the profile block and the account fields for
 //  whichever arrived, so each parser reads one consistent thing.
 // ─────────────────────────────────────────────
+
 ({Map<String, dynamic> block, Map<String, dynamic> account, bool nested})
 _shape(Map<String, dynamic> raw, String key) {
   final nested = raw[key] is Map;
   return (
     block: nested
         ? unprefix(Map<String, dynamic>.from(raw[key]), [key])
-        : raw,
+        : unprefix(raw, [key]),
     account: nested ? unprefix(raw, ['user']) : raw,
     nested: nested,
   );
 }
 
+/// The HR fields trainers and employees share: what an employment letter
+/// states. Only present in payloads for viewers with HR access.
+mixin PayrollDetails {
+  String? hiredAt;
+  String? bankName;
+  String? accountNumber;
+  String? iban;
+
+  void readPayroll(Map<String, dynamic> json) {
+    hiredAt = asDate(json['hired_at']);
+    bankName = asString(json['bank_name']);
+    accountNumber = asString(json['account_number']);
+    iban = asString(json['iban']);
+  }
+
+  /// Grouped in fours the way banks print it.
+  String? get ibanLabel => iban?.replaceAllMapped(
+    RegExp(r'.{4}'),
+    (m) => '${m.group(0)} ',
+  ).trim();
+}
+
 // ─────────────────────────────────────────────
 //  PLAYER PROFILE — بيانات العضو
 // ─────────────────────────────────────────────
+
 class PlayerProfile {
   int? id;
   int? userId;
@@ -255,7 +277,6 @@ class PlayerProfile {
   /// they give at the desk, as opposed to [id], which is a database key
   /// nobody outside the server should ever see.
   String? clubId;
-
   String? name;
   String? nameEn;
   String? email;
@@ -274,6 +295,14 @@ class PlayerProfile {
   /// The code survives; it just stops working until re-enabled.
   bool guardianAccessEnabled;
 
+  /// Whether the member has declared a health condition. Sent to every
+  /// staff viewer: it is the mark that tells a coach to take care.
+  bool hasHealthCondition;
+
+  /// What the condition is. Null unless the viewer holds
+  /// `people.health.view` — see [hasHealthCondition] for the flag.
+  String? healthCondition;
+
   PlayerProfile({
     this.id,
     this.userId,
@@ -288,6 +317,8 @@ class PlayerProfile {
     this.qrToken,
     this.guardianCode,
     this.guardianAccessEnabled = true,
+    this.hasHealthCondition = false,
+    this.healthCondition,
   });
 
   factory PlayerProfile.fromJson(Map<String, dynamic> raw) {
@@ -298,7 +329,7 @@ class PlayerProfile {
     return PlayerProfile(
       id: asInt(json['id']),
       userId: asInt(s.nested ? account['id'] : json['user_id']),
-      clubId: asString(json['club_id'] ?? json['player_club_id']),
+      clubId: asString(json['club_id']),
       name: asString(account['name']),
       email: asString(account['email']),
       phone: asString(account['phone']),
@@ -307,17 +338,10 @@ class PlayerProfile {
       weight: asDouble(json['weight']),
       emergencyContact: asString(json['emergency_contact']),
       qrToken: asString(json['qr_token']),
-      // PlayerResource sends the flat keys; UserResource nests them under
-      // its `player` block with a `player_` prefix, and this model is fed
-      // from both.
-      guardianCode: asString(
-        json['guardian_code'] ?? json['player_guardian_code'],
-      ),
-      guardianAccessEnabled: asBool(
-        json['guardian_access_enabled'] ??
-            json['player_guardian_access_enabled'] ??
-            true,
-      ),
+      guardianCode: asString(json['guardian_code']),
+      guardianAccessEnabled: asBool(json['guardian_access_enabled'] ?? true),
+      hasHealthCondition: asBool(json['has_health_condition']),
+      healthCondition: asString(json['health_condition']),
     );
   }
 
@@ -328,6 +352,7 @@ class PlayerProfile {
   };
 
   String get displayName => name ?? '—';
+
   double? get bmi {
     if (height == null || weight == null || height == 0) return null;
     final m = height! / 100;
@@ -338,7 +363,8 @@ class PlayerProfile {
 // ─────────────────────────────────────────────
 //  TRAINER PROFILE — بيانات المدرب
 // ─────────────────────────────────────────────
-class TrainerProfile {
+
+class TrainerProfile with PayrollDetails {
   int? id;
   int? userId;
   String? name;
@@ -352,6 +378,7 @@ class TrainerProfile {
   String? status;
   double? ratingAvg;
   int? membershipsCount;
+  double? salary;
 
   TrainerProfile({
     this.id,
@@ -367,6 +394,7 @@ class TrainerProfile {
     this.status,
     this.ratingAvg,
     this.membershipsCount,
+    this.salary,
   });
 
   factory TrainerProfile.fromJson(Map<String, dynamic> raw) {
@@ -389,7 +417,8 @@ class TrainerProfile {
       ratingAvg: asDouble(json['rating_avg']),
       // Only present when the endpoint asked for the count.
       membershipsCount: asInt(json['memberships_count']),
-    );
+      salary: asDouble(json['salary']),
+    )..readPayroll(json);
   }
 
   Map<String, dynamic> toJson() => {
@@ -406,7 +435,8 @@ class TrainerProfile {
 // ─────────────────────────────────────────────
 //  EMPLOYEE PROFILE — بيانات الموظف
 // ─────────────────────────────────────────────
-class EmployeeProfile {
+
+class EmployeeProfile with PayrollDetails {
   int? id;
   int? userId;
   String? name;
@@ -414,6 +444,7 @@ class EmployeeProfile {
   String? email;
   String? phone;
   String? avatar;
+
   /// The tier — which application this account may open.
   String? role;
 
@@ -426,7 +457,6 @@ class EmployeeProfile {
   /// hired into, and is editable from then on — a promotion and a
   /// permissions change are two different events.
   String? position;
-
   double? salary;
   String? status;
 
@@ -465,7 +495,7 @@ class EmployeeProfile {
       position: asString(json['position']),
       salary: asDouble(json['salary']),
       status: asString(json['status']),
-    );
+    )..readPayroll(json);
   }
 
   Map<String, dynamic> toJson() => {

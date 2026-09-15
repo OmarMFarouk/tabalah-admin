@@ -18,7 +18,7 @@ import '../src/app_globals.dart';
 import '../src/app_permissions.dart';
 
 // ─────────────────────────────────────────────
-//  CATALOG — الاشتراكات
+//  CATALOG — الباقات
 //  A sport holds memberships; a membership holds
 //  the weekly slots it meets on. One page.
 // ─────────────────────────────────────────────
@@ -67,7 +67,7 @@ class _CatalogView extends StatelessWidget {
               return Column(
                 children: [
                   PageHeader(
-                    title: 'الاشتراكات والعروض',
+                    title: 'الباقات والعروض',
                     icon: Icons.card_membership_rounded,
                     isLoading: loading,
                     onRefresh: c.fetch,
@@ -86,7 +86,7 @@ class _CatalogView extends StatelessWidget {
                         HeaderButton(
                           icon: Icons.add_rounded,
                           label: switch (c.tab) {
-                            CatalogTab.memberships => 'اشتراك جديد',
+                            CatalogTab.memberships => 'باقة جديدة',
                             CatalogTab.sports => 'رياضة جديدة',
                             CatalogTab.schedules => 'موعد جديد',
                           },
@@ -100,7 +100,7 @@ class _CatalogView extends StatelessWidget {
                   StatRow(
                     cards: [
                       StatCard(
-                        label: 'الاشتراكات',
+                        label: 'الباقات',
                         value: '${c.memberships.total}',
                         icon: Icons.card_membership_rounded,
                         color: GlobalColors.accent,
@@ -152,9 +152,9 @@ class _CatalogView extends StatelessWidget {
               value: pickWhere(AppGlobals.memberships, (m) => m.id == c.scheduleMembershipFilter),
               items: AppGlobals.memberships,
               labelOf: (m) => m.name ?? '—',
-              label: 'الاشتراك',
+              label: 'الباقة',
               icon: Icons.card_membership_rounded,
-              emptyLabel: 'كل الاشتراكات',
+              emptyLabel: 'كل الباقات',
               onChanged: (m) => c.setFilter(membership: m?.id ?? -1),
             ),
           ),
@@ -238,12 +238,12 @@ class _CatalogView extends StatelessWidget {
           isLoading: loading,
           data: c.memberships,
           onPage: c.setPage,
-          unitLabel: 'اشتراك',
-          emptyTitle: 'لا توجد اشتراكات',
-          emptyHint: 'اضغط "اشتراك جديد" للبدء',
+          unitLabel: 'باقة',
+          emptyTitle: 'لا توجد باقات',
+          emptyHint: 'اضغط "باقة جديدة" للبدء',
           emptyIcon: Icons.card_membership_rounded,
           columns: const [
-            AppColumn('الاشتراك', flex: 3),
+            AppColumn('الباقة', flex: 3),
             AppColumn('الرياضة'),
             AppColumn('المدرب', flex: 2),
             AppColumn('السعر'),
@@ -293,7 +293,7 @@ class _CatalogView extends StatelessWidget {
                 ActionBtn(
                   icon: Icons.event_repeat_rounded,
                   color: GlobalColors.blue,
-                  tooltip: 'مواعيد هذا الاشتراك',
+                  tooltip: 'مواعيد هذه الباقة',
                   onTap: () {
                     c.tab = CatalogTab.schedules;
                     c.setFilter(membership: m.id ?? -1);
@@ -313,7 +313,7 @@ class _CatalogView extends StatelessWidget {
                   enabled: canWrite,
                   onTap: () => showConfirm(
                     ctx,
-                    title: 'حذف الاشتراك',
+                    title: 'حذف الباقة',
                     message:
                         'سيؤدي حذف "${m.name}" إلى حذف مواعيده وحصصه وتسجيلات أعضائه.',
                     onConfirm: () => c.deleteMembership(m.id!),
@@ -337,7 +337,7 @@ class _CatalogView extends StatelessWidget {
             AppColumn('الرياضة', flex: 3),
             AppColumn('الوصف', flex: 4),
             AppColumn('المدربون'),
-            AppColumn('الاشتراكات'),
+            AppColumn('الباقات'),
             AppColumn('إجراءات'),
           ],
           rowBuilder: (rc, s, i) => AppRow(
@@ -383,7 +383,7 @@ class _CatalogView extends StatelessWidget {
                     ctx,
                     title: 'حذف الرياضة',
                     message:
-                        'حذف "${s.name}" يحذف معها مدربيها واشتراكاتها. لا يمكن التراجع.',
+                        'حذف "${s.name}" يحذف معها مدربيها وباقاتها. لا يمكن التراجع.',
                     onConfirm: () => c.deleteSport(s.id!),
                   ),
                 ),
@@ -402,7 +402,7 @@ class _CatalogView extends StatelessWidget {
           emptyHint: 'أضف موعداً أسبوعياً أو تاريخاً محدداً',
           emptyIcon: Icons.event_repeat_rounded,
           columns: const [
-            AppColumn('الاشتراك', flex: 3),
+            AppColumn('الباقة', flex: 3),
             AppColumn('النوع'),
             AppColumn('اليوم / التاريخ', flex: 2),
             AppColumn('التوقيت', flex: 2),
@@ -438,7 +438,7 @@ class _CatalogView extends StatelessWidget {
                   onTap: () => showConfirm(
                     ctx,
                     title: 'حذف الموعد',
-                    message: 'سيُحذف هذا الموعد من جدول الاشتراك.',
+                    message: 'سيُحذف هذا الموعد من جدول الباقة.',
                     onConfirm: () => c.deleteSchedule(s.id!),
                   ),
                 ),
@@ -631,7 +631,7 @@ class _CatalogFormState extends State<_CatalogForm> {
   Widget _membershipForm(CatalogCubit c) {
     final isEdit = widget.membership != null;
     return AppDialog<CatalogCubit>(
-      title: isEdit ? 'تعديل الاشتراك' : 'اشتراك جديد',
+      title: isEdit ? 'تعديل الباقة' : 'باقة جديدة',
       icon: Icons.card_membership_rounded,
       saveLabel: isEdit ? 'حفظ' : 'إضافة',
       width: 600,
@@ -642,7 +642,7 @@ class _CatalogFormState extends State<_CatalogForm> {
           dialogRow([
             AppField(
               controller: c.nameCont,
-              label: 'اسم الاشتراك (عربي) *',
+              label: 'اسم الباقة (عربي) *',
               icon: Icons.card_membership_rounded,
             ),
             AppField(
@@ -751,8 +751,8 @@ class _CatalogFormState extends State<_CatalogForm> {
           // app, so busy photos still read fine — the card ink stays on top.
           ImageField(
             urlController: c.imageCont,
-            label: 'صورة الاشتراك',
-            hint: 'تُعرض كخلفية باهتة لبطاقة الاشتراك في التطبيق',
+            label: 'صورة الباقة',
+            hint: 'تُعرض كخلفية باهتة لبطاقة الباقة في التطبيق',
             pickedPath: c.pendingImagePath,
             currentUrl: widget.membership?.imageUrl,
             markedForRemoval: c.clearImage,
@@ -785,7 +785,7 @@ class _CatalogFormState extends State<_CatalogForm> {
               value: pickWhere(AppGlobals.memberships, (m) => m.id == c.schedMembershipId),
               items: AppGlobals.memberships,
               labelOf: (m) => m.name ?? '—',
-              label: 'الاشتراك *',
+              label: 'الباقة *',
               icon: Icons.card_membership_rounded,
               onChanged: (m) => setState(() => c.schedMembershipId = m?.id),
             ),

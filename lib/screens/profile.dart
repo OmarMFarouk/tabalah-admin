@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -5,12 +6,20 @@ import '../blocs/base_states.dart';
 import '../blocs/profile_bloc/profile_cubit.dart';
 import '../components/general/app_dialog.dart';
 import '../components/general/app_field.dart';
+import '../components/general/app_table.dart';
 import '../components/general/empty_widget.dart';
 import '../components/general/modal_page.dart';
 import '../components/general/snackbar.dart';
+import '../components/general/star_rating.dart';
 import '../components/general/stat_card.dart';
 import '../models/catalog_model.dart';
+import '../models/finance_model.dart';
+import '../models/hr_model.dart';
+import '../models/paginated_model.dart';
+import '../models/performance_model.dart';
 import '../models/profile_model.dart';
+import '../models/sessions_model.dart';
+import '../models/users_model.dart';
 import '../src/app_colors.dart';
 import '../src/app_globals.dart';
 import '../src/app_permissions.dart';
@@ -20,15 +29,13 @@ import 'user_audit.dart';
 //  USER PROFILE — الملف الشخصي
 //  ONE screen for every kind of account.
 //
-//  The role decides which sections appear, not
-//  which screen opens: a member gets enrolments,
-//  payments and attendance; a trainer gets their
-//  sessions and ratings; staff get KPIs and pay.
-//  Everything else — the header, the stat strip,
-//  the section chrome — is shared, so a new
-//  counter is one entry in a list rather than a
-//  new page.
+//  Everything on it describes one period, chosen
+//  at the top: the stats, and every tab under them.
+//  The role decides the stats and which tabs exist;
+//  the server decides which of those this viewer
+//  may open, so a tab never appears only to 403.
 // ─────────────────────────────────────────────
+
 class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({
     super.key,
@@ -41,9 +48,7 @@ class UserProfileScreen extends StatefulWidget {
 
   /// Opens the enrol form as soon as the profile has loaded. Set when the
   /// user arrived *in order to* enrol — the dashboard's quick action — so
-  /// they aren't dropped on a profile and left to find the button. The
-  /// profile still renders behind it, so what the member is already on is
-  /// visible before committing to another.
+  /// they aren't dropped on a profile and left to find the button.
   final bool autoEnroll;
 
   /// Shown in the header until the fetch lands, so opening a profile from a
@@ -53,10 +58,8 @@ class UserProfileScreen extends StatefulWidget {
   /// The one way to open a profile. Keeps the cubit's lifetime tied to the
   /// route so a stale profile can't leak into the next one.
   ///
-  /// Opens as a panel over the app rather than as a pushed page. You reach a
-  /// profile *from* a table you are working through, and replacing that table
-  /// with a full screen threw away the context you opened it from — the panel
-  /// leaves it visible behind the blur, and leaves the nav bar usable.
+  /// Opens as a panel over the app rather than as a pushed page, so the table
+  /// it was opened from stays visible behind it.
   static void open(
     BuildContext context,
     int userId, {
@@ -87,19 +90,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ModalPage supplies the Directionality, the frosted surface and the
-    // sizing that leaves the top bar visible.
     return ModalPage(
-      // SelectionArea sits here, per screen, rather than once in
-      // MaterialApp.builder. `builder` wraps the Navigator, so a
-      // SelectionArea there would be ABOVE the Overlay and its
-      // copy/select context menu would have nowhere to mount - the same
-      // trap Tooltip hits in that position. Inside a route the Overlay is
-      // an ancestor, so right-click copy works.
+      // SelectionArea per screen rather than in MaterialApp.builder, which
+      // sits above the Overlay and leaves the copy menu nowhere to mount.
       child: SelectionArea(
         child: Material(
-          // Transparent: the panel behind already paints the surface, and a
-          // second opaque layer would cancel the blur showing through.
           color: Colors.transparent,
           child: BlocConsumer<ProfileCubit, AppStates>(
             listener: (ctx, state) {
@@ -110,10 +105,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 MySnackBar.show(ctx, text: state.msg, isSuccess: true);
               }
 
-              // Arrived here to enrol, and the profile has now loaded — open
-              // the form. Waiting for the load matters: the dialog reads the
-              // member's current state, and firing it against an empty
-              // profile would show a blank banner behind it.
               if (widget.autoEnroll &&
                   !_autoEnrollFired &&
                   state is AppLoaded &&
@@ -136,14 +127,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     fallbackName: widget.fallbackName,
                     onClose: () => Navigator.of(ctx).maybePop(),
                     onRefresh: c.fetch,
+                    onLetter: Permissions.canIssueLetters && (p.isTrainer || p.isStaff)
+                        ? c.openEmploymentLetter
+                        : null,
                   ),
                   Expanded(
                     child: loading
                         ? const Center(child: CircularProgressIndicator())
-                        : ListView(
-                            padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
-                            children: _sections(ctx, c, p),
-                          ),
+                        : _ProfileBody(cubit: c),
                   ),
                 ],
               );
@@ -153,333 +144,276 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       ),
     );
   }
+}
 
-  // The role switch lives here and nowhere else.
-  //
-  // Each role sees only what its job produces. Employees and admins used to
-  // share one section list, which put KPI targets and salary tables on the
-  // owner's own profile and left an employee's clock-ins nowhere.
-  List<Widget> _sections(BuildContext ctx, ProfileCubit c, UserProfile p) {
-    if (p.isPlayer) return _playerSections(ctx, c, p);
-    if (p.isTrainer) return _trainerSections(p);
-    if (p.isEmployee) return _employeeSections(p);
-    return _adminSections(p);
+// ─────────────────────────────────────────────
+//  BODY — الملخص والتبويبات
+// ─────────────────────────────────────────────
+
+class _ProfileBody extends StatefulWidget {
+  const _ProfileBody({required this.cubit});
+  final ProfileCubit cubit;
+
+  @override
+  State<_ProfileBody> createState() => _ProfileBodyState();
+}
+
+class _ProfileBodyState extends State<_ProfileBody> with TickerProviderStateMixin {
+  TabController? _tabs;
+  List<String> _keys = const [];
+
+  @override
+  void dispose() {
+    _tabs?.dispose();
+    super.dispose();
   }
 
-  // ── Employee — الموظف ───────────────────────
-  // Attendance first: it is the thing this role is measured on and the
-  // reason anyone opens an employee's profile.
-  List<Widget> _employeeSections(UserProfile p) {
-    final rows = p.employeeAttendances;
-    final thisMonth = rows
-        .where((r) => r.dateLabel.startsWith(
-            DateTime.now().toIso8601String().substring(0, 7)))
-        .length;
+  /// Rebuilt only when the set of tabs changes, so picking a new period keeps
+  /// the tab you were on. The old controller is disposed after the frame: the
+  /// TabBar still holding it detaches during this build.
+  void _syncTabs() {
+    final keys = widget.cubit.profile.tabs;
+    if (listEquals(keys, _keys) && (_tabs != null || keys.isEmpty)) return;
 
-    return [
-      Row(
-        children: [
-          StatCard(
-            label: 'أيام الحضور هذا الشهر',
-            value: '$thisMonth',
-            sub: 'من إجمالي ${rows.length} يوم مسجّل',
-            icon: Icons.where_to_vote_rounded,
-            color: GlobalColors.green,
-          ),
-          const SizedBox(width: 12),
-          StatCard(
-            label: 'آخر حضور',
-            value: rows.isEmpty ? '—' : rows.first.dateLabel,
-            sub: rows.isEmpty ? 'لم يسجّل بعد' : 'الساعة ${rows.first.timeLabel}',
-            icon: Icons.schedule_rounded,
-            color: GlobalColors.blue,
-          ),
-          const SizedBox(width: 12),
-          StatCard(
-            label: 'إجمالي الرواتب',
-            value:
-                '${p.stats.salariesTotal.toStringAsFixed(0)} ${AppGlobals.currency}',
-            sub: '${p.stats.salariesCount} دفعة',
-            icon: Icons.account_balance_wallet_rounded,
-            color: GlobalColors.gold,
-          ),
-        ],
-      ),
-      const SizedBox(height: 20),
-      _Section(
-        title: 'سجل الحضور',
-        icon: Icons.where_to_vote_rounded,
-        child: _MiniTable(
-          headers: const ['التاريخ', 'وقت التسجيل', 'المسافة من المركز'],
-          rows: rows
-              .map((r) => [r.dateLabel, r.timeLabel, '${r.distanceMeters} م'])
-              .toList(),
-          emptyLabel: 'لا يوجد حضور مسجّل',
-        ),
-      ),
-      const SizedBox(height: 16),
-      _salarySection(p),
-    ];
+    final old = _tabs;
+    if (old != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+    }
+
+    _keys = keys;
+    _tabs = null;
+    if (keys.isEmpty) return;
+
+    final start = keys.indexOf(widget.cubit.activeTab ?? '');
+    final controller = TabController(
+      length: keys.length,
+      vsync: this,
+      initialIndex: start < 0 ? 0 : start,
+    );
+    controller.addListener(() {
+      if (!controller.indexIsChanging) {
+        widget.cubit.openTab(_keys[controller.index]);
+      }
+    });
+    _tabs = controller;
   }
 
-  // ── Admin / owner — الإدارة ─────────────────
-  // No KPI or salary tables: those describe staff who are measured and
-  // paid through the club, not the people running it. What matters on an
-  // admin's own profile is the account itself, which the header carries.
-  List<Widget> _adminSections(UserProfile p) {
-    return [
-      Row(
-        children: [
-          StatCard(
-            label: 'الدور',
-            value: p.user?.roleAr ?? '—',
-            sub: 'صلاحيات لوحة التحكم',
-            icon: Icons.admin_panel_settings_rounded,
-            color: GlobalColors.blue,
-          ),
-          const SizedBox(width: 12),
-          StatCard(
-            label: 'آخر ظهور',
-            value: p.user?.presenceAr ?? '—',
-            sub: 'حالة الحساب',
-            icon: Icons.schedule_rounded,
-            color: GlobalColors.green,
-          ),
-        ],
-      ),
-      if (p.kpiRecords.isNotEmpty) ...[
-        const SizedBox(height: 20),
-        _Section(
-          title: 'سجلات الأداء',
-          icon: Icons.speed_rounded,
-          child: _MiniTable(
-            headers: const ['المؤشر', 'المستهدف', 'المحقق', 'الفترة'],
-            rows: p.kpiRecords
-                .map((x) => [
-                      x.metric ?? '—',
-                      x.target?.toStringAsFixed(1) ?? '—',
-                      x.actual?.toStringAsFixed(1) ?? '—',
-                      x.period ?? '—',
-                    ])
-                .toList(),
-            emptyLabel: 'لا توجد سجلات أداء',
+  @override
+  Widget build(BuildContext context) {
+    _syncTabs();
+    final c = widget.cubit;
+    final p = c.profile;
+    final tabs = _tabs;
+
+    return NestedScrollView(
+      headerSliverBuilder: (ctx, _) => [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _RangeBar(cubit: c),
+                const SizedBox(height: 14),
+                ..._summary(ctx, c, p),
+              ],
+            ),
           ),
         ),
+        if (tabs != null)
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: _TabBarDelegate(
+              background: GlobalColors.surface(ctx),
+              border: GlobalColors.border(ctx),
+              bar: TabBar(
+                key: ValueKey(_keys.join('|')),
+                controller: tabs,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                labelColor: GlobalColors.accentSoft,
+                unselectedLabelColor: GlobalColors.textSecondary(ctx),
+                indicatorColor: GlobalColors.accent,
+                indicatorWeight: 2.5,
+                dividerColor: Colors.transparent,
+                labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                tabs: [
+                  for (final key in _keys)
+                    Tab(
+                      height: 44,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(_tabIcon(key), size: 16),
+                          const SizedBox(width: 6),
+                          Text(_tabLabel(key, p)),
+                          if (c.sections[key] != null) ...[
+                            const SizedBox(width: 6),
+                            _CountBadge(count: c.sections[key]!.total),
+                          ],
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
       ],
-      if (p.salaries.isNotEmpty) ...[
-        const SizedBox(height: 16),
-        _salarySection(p),
-      ],
-    ];
+      body: tabs == null
+          ? const Center(child: EmptyState(title: 'لا توجد سجلات يمكنك الاطلاع عليها'))
+          : TabBarView(
+              key: ValueKey(_keys.join('|')),
+              controller: tabs,
+              children: [for (final key in _keys) _SectionView(cubit: c, section: key)],
+            ),
+    );
   }
 
-  // ── Member — العضو ──────────────────────────
-  List<Widget> _playerSections(
-    BuildContext ctx,
-    ProfileCubit c,
-    UserProfile p,
-  ) {
+  // ── Summary per role ────────────────────────
+
+  List<Widget> _summary(BuildContext ctx, ProfileCubit c, UserProfile p) {
     final s = p.stats;
-    return [
-      _MembershipBanner(profile: p, onEnroll: () => showEnrollDialog(ctx, c)),
-      const SizedBox(height: 16),
-      Row(
-        children: [
+    final u = p.user;
+
+    if (p.isPlayer) {
+      return [
+        _MembershipBanner(profile: p, onEnroll: () => showEnrollDialog(ctx, c)),
+        if (u?.player?.hasHealthCondition ?? false) ...[
+          const SizedBox(height: 12),
+          _HealthCard(note: u!.player!.healthCondition),
+        ],
+        const SizedBox(height: 14),
+        _cards([
           StatCard(
             label: 'نسبة الحضور',
-            value: s.attendanceRate == null
-                ? '—'
-                : '${s.attendanceRate!.toStringAsFixed(0)}%',
-            sub: '${s.presentCount} حضور · ${s.absentCount} غياب',
+            value: s.attendanceRate == null ? '—' : '${s.attendanceRate!.toStringAsFixed(0)}%',
+            sub: '${s.presentCount} حضور · ${s.lateCount} تأخير · ${s.absentCount} غياب',
             icon: Icons.how_to_reg_rounded,
             color: _rateColor(s.attendanceRate),
           ),
-          const SizedBox(width: 12),
           StatCard(
             label: 'الحصص المسجّلة',
             value: '${s.sessionsRecorded}',
-            sub: '${s.lateCount} تأخير · ${s.excusedCount} بعذر',
+            sub: '${s.excusedCount} غياب بعذر',
             icon: Icons.event_available_rounded,
             color: GlobalColors.blue,
           ),
-          const SizedBox(width: 12),
-          StatCard(
-            label: 'إجمالي المدفوع',
-            value: '${s.totalPaid.toStringAsFixed(0)} ${AppGlobals.currency}',
-            sub: s.pendingAmount > 0
-                ? 'معلّق: ${s.pendingAmount.toStringAsFixed(0)}'
-                : 'لا مبالغ معلّقة',
-            icon: Icons.payments_rounded,
-            color: s.pendingAmount > 0
-                ? GlobalColors.gold
-                : GlobalColors.green,
-          ),
-          const SizedBox(width: 12),
-          StatCard(
-            label: 'الاشتراكات',
-            value: '${s.enrollmentsCount}',
-            sub: '${s.activeEnrollmentsCount} نشط',
-            icon: Icons.card_membership_rounded,
-            color: GlobalColors.accent,
-          ),
-        ],
-      ),
-      const SizedBox(height: 20),
-      _Section(
-        title: 'الاشتراكات',
-        icon: Icons.card_membership_rounded,
-        action: _SectionAction(
-          label: 'تسجيل اشتراك',
-          icon: Icons.add_rounded,
-          onTap: () => showEnrollDialog(ctx, c),
-        ),
-        child: _EnrollmentList(
-          enrollments: p.enrollments,
-          onCancel: (id) => c.setEnrollmentStatus(id, 'cancelled'),
-          onActivate: (id) => c.setEnrollmentStatus(id, 'active'),
-        ),
-      ),
-      const SizedBox(height: 16),
-      _Section(
-        title: 'المدفوعات',
-        icon: Icons.receipt_long_rounded,
-        child: _MiniTable(
-          headers: const ['المرجع', 'المبلغ', 'الحالة', 'التاريخ'],
-          rows: p.payments
-              .map(
-                (x) => [
-                  x.reference ?? '—',
-                  '${x.amount?.toStringAsFixed(2) ?? '—'} ${AppGlobals.currency}',
-                  x.statusAr,
-                  x.createdAt ?? '—',
-                ],
-              )
-              .toList(),
-          emptyLabel: 'لا توجد مدفوعات',
-        ),
-      ),
-      const SizedBox(height: 16),
-      _Section(
-        title: 'سجل الحضور',
-        icon: Icons.fact_check_rounded,
-        child: _MiniTable(
-          headers: const ['التاريخ', 'الاشتراك', 'الحالة', 'ملاحظة'],
-          rows: p.attendances
-              .map(
-                (x) => [
-                  x.date ?? '—',
-                  AppGlobals.membershipName(x.membershipId),
-                  x.statusAr,
-                  x.note ?? '—',
-                ],
-              )
-              .toList(),
-          emptyLabel: 'لا يوجد سجل حضور',
-        ),
-      ),
-    ];
-  }
-
-  // ── Trainer — المدرب ────────────────────────
-  List<Widget> _trainerSections(UserProfile p) {
-    final s = p.stats;
-    return [
-      Row(
-        children: [
           StatCard(
             label: 'متوسط التقييم',
-            value: s.averageRating == null
-                ? '—'
-                : s.averageRating!.toStringAsFixed(1),
+            value: s.averageRating?.toStringAsFixed(1) ?? '—',
+            sub: '${s.ratingsCount} تقييم من المدربين',
+            icon: Icons.star_rounded,
+            color: GlobalColors.gold,
+          ),
+          if (s.has('total_paid'))
+            StatCard(
+              label: 'المدفوع',
+              value: '${s.totalPaid.toStringAsFixed(0)} ${AppGlobals.currency}',
+              sub: s.pendingAmount > 0
+                  ? 'معلّق: ${s.pendingAmount.toStringAsFixed(0)}'
+                  : 'لا مبالغ معلّقة',
+              icon: Icons.payments_rounded,
+              color: s.pendingAmount > 0 ? GlobalColors.gold : GlobalColors.green,
+            ),
+        ]),
+      ];
+    }
+
+    final payroll = <Widget>[
+      if (s.has('attendance_days'))
+        StatCard(
+          label: 'أيام الحضور',
+          value: '${s.attendanceDays}',
+          sub: s.lastCheckInAt == null ? 'لم يسجّل حضوراً بعد' : 'آخر حضور ${s.lastCheckInAt}',
+          icon: Icons.where_to_vote_rounded,
+          color: GlobalColors.green,
+        ),
+      if (s.has('overtime_hours'))
+        StatCard(
+          label: 'الساعات الإضافية',
+          value: formatHours(s.overtimeHours),
+          sub: 'ضمن الفترة',
+          icon: Icons.more_time_rounded,
+          color: GlobalColors.purple,
+        ),
+      if (s.has('kpi_records_count'))
+        StatCard(
+          label: 'تحقيق الأهداف',
+          value: s.averageAchievement == null ? '—' : '${s.averageAchievement!.toStringAsFixed(0)}%',
+          sub: '${s.kpiRecordsCount} مؤشر مسجّل',
+          icon: Icons.speed_rounded,
+          color: GlobalColors.blue,
+        ),
+      if (s.has('salaries_total'))
+        StatCard(
+          label: 'الرواتب المصروفة',
+          value: '${s.salariesTotal.toStringAsFixed(0)} ${AppGlobals.currency}',
+          sub: '${s.salariesCount} دفعة',
+          icon: Icons.account_balance_wallet_rounded,
+          color: GlobalColors.gold,
+        ),
+    ];
+
+    return [
+      if (Permissions.canSeeHr && u != null) ...[
+        _HrCard(user: u),
+        const SizedBox(height: 14),
+      ],
+      if (p.isTrainer) ...[
+        _cards([
+          StatCard(
+            label: 'متوسط تقييمه',
+            value: s.averageRating?.toStringAsFixed(1) ?? '—',
+            sub: '${s.ratingsCount} تقييم مستلم',
+            icon: Icons.star_rounded,
+            color: GlobalColors.gold,
+          ),
+          StatCard(
+            label: 'الحصص',
+            value: '${s.sessionsCount}',
+            sub: '${s.completedSessionsCount} مكتملة · ${s.upcomingSessionsCount} قادمة',
+            icon: Icons.sports_rounded,
+            color: GlobalColors.blue,
+          ),
+          StatCard(
+            label: 'اللاعبون',
+            value: '${s.playersCount}',
+            sub: 'في ${s.membershipsCount} باقة',
+            icon: Icons.groups_rounded,
+            color: GlobalColors.green,
+          ),
+          StatCard(
+            label: 'تقييماته للاعبين',
+            value: '${s.assessmentsGivenCount}',
+            sub: 'ضمن الفترة',
+            icon: Icons.rate_review_rounded,
+            color: GlobalColors.accent,
+          ),
+        ]),
+        if (payroll.isNotEmpty) ...[const SizedBox(height: 12), _cards(payroll)],
+      ] else
+        _cards([
+          ...payroll,
+          StatCard(
+            label: 'متوسط التقييم',
+            value: s.averageRating?.toStringAsFixed(1) ?? '—',
             sub: '${s.ratingsCount} تقييم',
             icon: Icons.star_rounded,
             color: GlobalColors.gold,
           ),
-          const SizedBox(width: 12),
-          StatCard(
-            label: 'الحصص',
-            value: '${s.sessionsCount}',
-            sub: '${s.completedSessionsCount} مكتملة',
-            icon: Icons.sports_rounded,
-            color: GlobalColors.blue,
-          ),
-          const SizedBox(width: 12),
-          StatCard(
-            label: 'حصص قادمة',
-            value: '${s.upcomingSessionsCount}',
-            sub: 'من اليوم فصاعداً',
-            icon: Icons.upcoming_rounded,
-            color: GlobalColors.accent,
-          ),
-          const SizedBox(width: 12),
-          StatCard(
-            label: 'الاشتراكات المسندة',
-            value: '${s.membershipsCount}',
-            sub: 'يدرّبها حالياً',
-            icon: Icons.card_membership_rounded,
-            color: GlobalColors.green,
-          ),
-        ],
-      ),
-      const SizedBox(height: 20),
-      _Section(
-        title: 'أحدث الحصص',
-        icon: Icons.sports_rounded,
-        child: _MiniTable(
-          headers: const ['التاريخ', 'الاشتراك', 'من', 'إلى', 'الحالة'],
-          rows: p.sessions
-              .map(
-                (x) => [
-                  x.sessionDate ?? '—',
-                  x.membershipName ?? '—',
-                  x.startTime ?? '—',
-                  x.endTime ?? '—',
-                  x.statusAr,
-                ],
-              )
-              .toList(),
-          emptyLabel: 'لا توجد حصص',
-        ),
-      ),
-      const SizedBox(height: 16),
-      _Section(
-        title: 'التقييمات المستلمة',
-        icon: Icons.star_rounded,
-        child: _MiniTable(
-          headers: const ['المُقيِّم', 'التقييم', 'ملاحظة'],
-          rows: p.ratings
-              .map(
-                (x) => [
-                  x.raterName ?? '—',
-                  x.rating?.toStringAsFixed(1) ?? '—',
-                  x.note ?? '—',
-                ],
-              )
-              .toList(),
-          emptyLabel: 'لا توجد تقييمات',
-        ),
-      ),
-      const SizedBox(height: 16),
-      _salarySection(p),
+        ]),
     ];
   }
 
-  // ── Staff — الموظفون ────────────────────────
-  Widget _salarySection(UserProfile p) => _Section(
-    title: 'الرواتب',
-    icon: Icons.account_balance_wallet_rounded,
-    child: _MiniTable(
-      headers: const ['المبلغ', 'الفترة'],
-      rows: p.salaries
-          .map(
-            (x) => [
-              '${x.amount?.toStringAsFixed(2) ?? '—'} ${AppGlobals.currency}',
-              x.period ?? '—',
-            ],
-          )
-          .toList(),
-      emptyLabel: 'لا توجد رواتب مسجّلة',
-    ),
+  /// StatCard expands itself, so a row of them only needs the gaps.
+  Widget _cards(List<Widget> cards) => Row(
+    children: [
+      for (var i = 0; i < cards.length; i++) ...[
+        if (i > 0) const SizedBox(width: 12),
+        cards[i],
+      ],
+    ],
   );
 
   static Color _rateColor(double? pct) {
@@ -490,14 +424,331 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 }
 
+String _tabLabel(String key, UserProfile p) => switch (key) {
+  'enrollments' => 'الاشتراكات',
+  'attendances' => 'سجل الحضور',
+  'ratings' => p.isPlayer ? 'تقييمات المدربين' : 'التقييمات المستلمة',
+  'payments' => 'المدفوعات',
+  'sessions' => 'الحصص',
+  'assessments_given' => 'تقييماته للاعبين',
+  'overtime' => 'الساعات الإضافية',
+  'employee_attendances' => 'حضور الدوام',
+  'kpi_records' => 'مؤشرات الأداء',
+  'salaries' => 'الرواتب',
+  _ => key,
+};
+
+IconData _tabIcon(String key) => switch (key) {
+  'enrollments' => Icons.card_membership_rounded,
+  'attendances' => Icons.fact_check_rounded,
+  'ratings' => Icons.star_rounded,
+  'payments' => Icons.receipt_long_rounded,
+  'sessions' => Icons.sports_rounded,
+  'assessments_given' => Icons.rate_review_rounded,
+  'overtime' => Icons.more_time_rounded,
+  'employee_attendances' => Icons.where_to_vote_rounded,
+  'kpi_records' => Icons.speed_rounded,
+  'salaries' => Icons.account_balance_wallet_rounded,
+  _ => Icons.list_alt_rounded,
+};
+
+class _TabBarDelegate extends SliverPersistentHeaderDelegate {
+  _TabBarDelegate({required this.bar, required this.background, required this.border});
+
+  final TabBar bar;
+  final Color background;
+  final Color border;
+
+  @override
+  double get minExtent => 47;
+
+  @override
+  double get maxExtent => 47;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      alignment: AlignmentDirectional.centerStart,
+      decoration: BoxDecoration(
+        color: background,
+        border: Border(bottom: BorderSide(color: border)),
+      ),
+      child: bar,
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _TabBarDelegate oldDelegate) => true;
+}
+
+class _CountBadge extends StatelessWidget {
+  const _CountBadge({required this.count});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+    decoration: BoxDecoration(
+      color: GlobalColors.accent.withValues(alpha: 0.16),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Text(
+      '$count',
+      style: TextStyle(color: GlobalColors.accentSoft, fontSize: 11, fontWeight: FontWeight.w700),
+    ),
+  );
+}
+
+// ─────────────────────────────────────────────
+//  RANGE BAR — الفترة الزمنية
+// ─────────────────────────────────────────────
+
+class _RangeBar extends StatelessWidget {
+  const _RangeBar({required this.cubit});
+  final ProfileCubit cubit;
+
+  Future<void> _pickCustom(BuildContext context) async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 5),
+      lastDate: now,
+      initialDateRange: cubit.from == null
+          ? null
+          : DateTimeRange(
+              start: DateTime.parse(cubit.from!),
+              end: DateTime.tryParse(cubit.to ?? '') ?? now,
+            ),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: ColorScheme.dark(
+            primary: GlobalColors.accent,
+            surface: GlobalColors.card(context),
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) cubit.applyRange(ProfileRange.custom, custom: picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: GlobalColors.surface(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: GlobalColors.border(context)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.date_range_rounded, size: 18, color: GlobalColors.accentSoft),
+          const SizedBox(width: 8),
+          Text(
+            'الفترة',
+            style: TextStyle(
+              color: GlobalColors.textPrimary(context),
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final r in ProfileRange.values.where((r) => r != ProfileRange.custom))
+                  AppFilterChip(
+                    label: r.label,
+                    isActive: cubit.range == r,
+                    onTap: () => cubit.applyRange(r),
+                  ),
+                AppFilterChip(
+                  label: ProfileRange.custom.label,
+                  isActive: cubit.range == ProfileRange.custom,
+                  onTap: () => _pickCustom(context),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            cubit.from == null ? 'كل السجلات' : '${cubit.from}  ←  ${cubit.to ?? 'اليوم'}',
+            style: TextStyle(color: GlobalColors.textSecondary(context), fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  SECTION VIEW — محتوى التبويب
+// ─────────────────────────────────────────────
+
+class _SectionView extends StatelessWidget {
+  const _SectionView({required this.cubit, required this.section});
+
+  final ProfileCubit cubit;
+  final String section;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = cubit.sections[section];
+    final loading = cubit.loadingSections.contains(section);
+
+    if (data == null) {
+      return Center(
+        child: loading
+            ? const CircularProgressIndicator()
+            : TextButton.icon(
+                onPressed: () => cubit.loadSection(section),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('تحميل السجلات'),
+              ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: GlobalColors.surface(context),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: GlobalColors.border(context)),
+          ),
+          child: _content(data),
+        ),
+        if (data.lastPage > 1)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (loading) ...[
+                  const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                  const SizedBox(width: 12),
+                ],
+                Paginator(
+                  data: data,
+                  onPage: (page) => cubit.loadSection(section, page: page),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _content(Paginated<dynamic> data) {
+    final items = data.items;
+    const empty = 'لا توجد سجلات ضمن الفترة المحددة';
+
+    switch (section) {
+      case 'enrollments':
+        return _EnrollmentList(
+          enrollments: items.cast<Enrollment>(),
+          onCancel: (id) => cubit.setEnrollmentStatus(id, 'cancelled'),
+          onActivate: (id) => cubit.setEnrollmentStatus(id, 'active'),
+        );
+      case 'ratings':
+      case 'assessments_given':
+        return _RatingList(
+          ratings: items.cast<SessionRating>(),
+          given: section == 'assessments_given',
+        );
+      case 'attendances':
+        return _MiniTable(
+          headers: const ['التاريخ', 'الباقة', 'الحالة', 'ملاحظة'],
+          rows: [
+            for (final Attendance x in items)
+              [x.date ?? '—', AppGlobals.membershipName(x.membershipId), x.statusAr, x.note ?? '—'],
+          ],
+          emptyLabel: empty,
+        );
+      case 'payments':
+        return _MiniTable(
+          headers: const ['المرجع', 'المبلغ', 'الحالة', 'التاريخ'],
+          rows: [
+            for (final Payment x in items)
+              [
+                x.reference ?? '—',
+                '${x.amount?.toStringAsFixed(2) ?? '—'} ${AppGlobals.currency}',
+                x.statusAr,
+                x.createdAt ?? '—',
+              ],
+          ],
+          emptyLabel: empty,
+        );
+      case 'sessions':
+        return _MiniTable(
+          headers: const ['التاريخ', 'الباقة', 'من', 'إلى', 'الحالة'],
+          rows: [
+            for (final ClubSession x in items)
+              [x.sessionDate ?? '—', x.membershipName ?? '—', x.startTime ?? '—', x.endTime ?? '—', x.statusAr],
+          ],
+          emptyLabel: empty,
+        );
+      case 'overtime':
+        return _MiniTable(
+          headers: const ['التاريخ', 'الساعات', 'ملاحظة', 'سجّلها'],
+          rows: [
+            for (final OvertimeRecord x in items)
+              [x.date ?? '—', formatHours(x.hours), x.note ?? '—', x.recorderName ?? '—'],
+          ],
+          emptyLabel: empty,
+        );
+      case 'employee_attendances':
+        return _MiniTable(
+          headers: const ['التاريخ', 'وقت التسجيل', 'المسافة من المركز'],
+          rows: [
+            for (final EmployeeClockIn x in items)
+              [x.dateLabel, x.timeLabel, '${x.distanceMeters} م'],
+          ],
+          emptyLabel: empty,
+        );
+      case 'kpi_records':
+        return _MiniTable(
+          headers: const ['المؤشر', 'المستهدف', 'المحقق', 'الفترة'],
+          rows: [
+            for (final KpiRecord x in items)
+              [
+                x.metric ?? '—',
+                x.target?.toStringAsFixed(1) ?? '—',
+                x.actual?.toStringAsFixed(1) ?? '—',
+                x.period ?? '—',
+              ],
+          ],
+          emptyLabel: empty,
+        );
+      case 'salaries':
+        return _MiniTable(
+          headers: const ['المبلغ', 'الفترة'],
+          rows: [
+            for (final Salary x in items)
+              ['${x.amount?.toStringAsFixed(2) ?? '—'} ${AppGlobals.currency}', x.period ?? '—'],
+          ],
+          emptyLabel: empty,
+        );
+    }
+    return const EmptyState(title: empty);
+  }
+}
+
 // ─────────────────────────────────────────────
 //  HEADER — الترويسة
 // ─────────────────────────────────────────────
+
 class _Header extends StatelessWidget {
   const _Header({
     required this.profile,
     required this.onClose,
     required this.onRefresh,
+    this.onLetter,
     this.fallbackName,
   });
 
@@ -506,18 +757,20 @@ class _Header extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onRefresh;
 
+  /// Null when the viewer may not issue letters, or the account is a member.
+  final VoidCallback? onLetter;
+
   @override
   Widget build(BuildContext context) {
     final u = profile.user;
     final name = u?.name ?? fallbackName ?? '...';
+    final flagged = u?.player?.hasHealthCondition ?? false;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 18, 14, 18),
       decoration: BoxDecoration(
         color: GlobalColors.surface(context).withValues(alpha: 0.5),
-        border: Border(
-          bottom: BorderSide(color: GlobalColors.border(context)),
-        ),
+        border: Border(bottom: BorderSide(color: GlobalColors.border(context))),
       ),
       child: Row(
         children: [
@@ -554,28 +807,42 @@ class _Header extends StatelessWidget {
                 const SizedBox(height: 4),
                 Wrap(
                   spacing: 10,
+                  runSpacing: 4,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     _Chip(text: u?.roleAr ?? '—'),
+                    if (u?.player?.clubId != null)
+                      _Chip(text: u!.player!.clubId!, color: GlobalColors.blue),
+                    if (flagged)
+                      _Chip(text: 'حالة صحية خاصة', color: GlobalColors.red, icon: Icons.medical_information_rounded),
                     if (u?.email != null)
                       _Muted(icon: Icons.mail_outline_rounded, text: u!.email!),
                     if (u?.phone != null)
-                      _Muted(
-                        icon: Icons.phone_outlined,
-                        text: u!.phone!,
-                      ),
+                      _Muted(icon: Icons.phone_outlined, text: u!.phone!),
                   ],
                 ),
               ],
             ),
           ),
+          if (onLetter != null)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 6),
+              child: OutlinedButton.icon(
+                onPressed: onLetter,
+                icon: const Icon(Icons.description_rounded, size: 18),
+                label: const Text('خطاب تعريف'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: GlobalColors.accentSoft,
+                  side: BorderSide(color: GlobalColors.accent.withValues(alpha: 0.4)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+            ),
           // Beside refresh: reading a profile and asking "what has this
-          // account been doing" is the same sitting, and the club-wide trail
-          // in settings makes you filter your way back to this one person.
+          // account been doing" is the same sitting.
           if (Permissions.canSeeAudit && u?.userId != null)
             IconButton(
-              onPressed: () =>
-                  showUserAuditDialog(context, u!.userId!, name: u.name),
+              onPressed: () => showUserAuditDialog(context, u!.userId!, name: u.name),
               icon: const Icon(Icons.history_rounded),
               color: GlobalColors.textSecondary(context),
               tooltip: 'سجل النشاط',
@@ -587,9 +854,6 @@ class _Header extends StatelessWidget {
             tooltip: 'تحديث',
           ),
           const SizedBox(width: 4),
-          // Close, not back: nothing is being navigated away from, so an
-          // arrow would describe the wrong thing. It sits at the end of the
-          // header, where a panel's dismiss control belongs.
           ModalCloseButton(onTap: onClose),
         ],
       ),
@@ -598,9 +862,10 @@ class _Header extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.text, this.color});
+  const _Chip({required this.text, this.color, this.icon});
   final String text;
   final Color? color;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -611,9 +876,12 @@ class _Chip extends StatelessWidget {
         color: c.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(
-        text,
-        style: TextStyle(color: c, fontSize: 12, fontWeight: FontWeight.w700),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[Icon(icon, size: 13, color: c), const SizedBox(width: 4)],
+          Text(text, style: TextStyle(color: c, fontSize: 12, fontWeight: FontWeight.w700)),
+        ],
       ),
     );
   }
@@ -630,25 +898,137 @@ class _Muted extends StatelessWidget {
     children: [
       Icon(icon, size: 13, color: GlobalColors.textSecondary(context)),
       const SizedBox(width: 4),
-      Text(
-        text,
-        style: TextStyle(
-          color: GlobalColors.textSecondary(context),
-          fontSize: 12,
-        ),
-      ),
+      Text(text, style: TextStyle(color: GlobalColors.textSecondary(context), fontSize: 12)),
     ],
   );
 }
 
 // ─────────────────────────────────────────────
-//  MEMBERSHIP BANNER — حالة الاشتراك
-//  The answer to "is this member paid up?", which
-//  the panel previously had no way to show.
+//  HEALTH CARD — الحالة الصحية
 // ─────────────────────────────────────────────
+
+class _HealthCard extends StatelessWidget {
+  const _HealthCard({required this.note});
+
+  /// Null when the viewer lacks people.health.view: they see that there is a
+  /// condition, not what it is.
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: GlobalColors.red.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: GlobalColors.red.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.medical_information_rounded, color: GlobalColors.red, size: 26),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'حالة صحية خاصة',
+                  style: TextStyle(color: GlobalColors.red, fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  note ?? 'أفصح ولي الأمر عن حالة صحية — تفاصيلها متاحة لأصحاب صلاحية الاطلاع على الحالة الصحية.',
+                  style: TextStyle(
+                    color: GlobalColors.textPrimary(context),
+                    fontSize: 13,
+                    height: 1.6,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  HR CARD — بيانات الموارد البشرية
+// ─────────────────────────────────────────────
+
+class _HrCard extends StatelessWidget {
+  const _HrCard({required this.user});
+  final User user;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = user.trainer;
+    final e = user.employee;
+    final PayrollDetails? hr = e ?? t;
+    if (hr == null) return const SizedBox.shrink();
+
+    final salary = e?.salary ?? t?.salary;
+    final missing = hr.iban == null || hr.bankName == null;
+
+    Widget item(IconData icon, String label, String? value) => SizedBox(
+      width: 210,
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: GlobalColors.accentSoft),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(color: GlobalColors.textSecondary(context), fontSize: 11)),
+                Text(
+                  value ?? 'غير مسجّل',
+                  style: TextStyle(
+                    color: value == null ? GlobalColors.red : GlobalColors.textPrimary(context),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: GlobalColors.surface(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: missing ? GlobalColors.gold.withValues(alpha: 0.4) : GlobalColors.border(context),
+        ),
+      ),
+      child: Wrap(
+        spacing: 18,
+        runSpacing: 12,
+        children: [
+          item(Icons.payments_rounded, 'الراتب الشهري',
+              salary == null ? null : '${salary.toStringAsFixed(0)} ${AppGlobals.currency}'),
+          item(Icons.event_available_rounded, 'تاريخ الالتحاق', hr.hiredAt),
+          item(Icons.account_balance_rounded, 'البنك', hr.bankName),
+          item(Icons.numbers_rounded, 'رقم الحساب', hr.accountNumber),
+          item(Icons.credit_card_rounded, 'الآيبان', hr.ibanLabel),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  MEMBERSHIP BANNER — حالة الاشتراك
+// ─────────────────────────────────────────────
+
 class _MembershipBanner extends StatelessWidget {
   const _MembershipBanner({required this.profile, required this.onEnroll});
-
   final UserProfile profile;
   final VoidCallback onEnroll;
 
@@ -658,13 +1038,10 @@ class _MembershipBanner extends StatelessWidget {
     final none = s.currentMembership == null;
     final days = s.daysRemaining;
     final urgent = none || (days != null && days <= 7);
-
-    final color = none
-        ? GlobalColors.red
-        : (urgent ? GlobalColors.gold : GlobalColors.green);
+    final color = none ? GlobalColors.red : (urgent ? GlobalColors.gold : GlobalColors.green);
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(16),
@@ -675,9 +1052,7 @@ class _MembershipBanner extends StatelessWidget {
           Icon(
             none
                 ? Icons.person_off_rounded
-                : (urgent
-                      ? Icons.hourglass_bottom_rounded
-                      : Icons.verified_rounded),
+                : (urgent ? Icons.hourglass_bottom_rounded : Icons.verified_rounded),
             color: color,
             size: 30,
           ),
@@ -705,98 +1080,22 @@ class _MembershipBanner extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     '${s.pendingPaymentEnrollments} اشتراك بانتظار الدفع',
-                    style: TextStyle(
-                      color: GlobalColors.gold,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: TextStyle(color: GlobalColors.gold, fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                 ],
               ],
             ),
           ),
-          FilledButton.icon(
-            onPressed: onEnroll,
-            icon: const Icon(Icons.add_rounded, size: 18),
-            label: const Text('تسجيل اشتراك'),
-            style: FilledButton.styleFrom(
-              backgroundColor: GlobalColors.accent,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          if (Permissions.canEnroll)
+            FilledButton.icon(
+              onPressed: onEnroll,
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('تسجيل اشتراك'),
+              style: FilledButton.styleFrom(
+                backgroundColor: GlobalColors.accent,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-//  SECTION — قسم
-// ─────────────────────────────────────────────
-class _SectionAction {
-  const _SectionAction({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-}
-
-class _Section extends StatelessWidget {
-  const _Section({
-    required this.title,
-    required this.icon,
-    required this.child,
-    this.action,
-  });
-
-  final String title;
-  final IconData icon;
-  final Widget child;
-  final _SectionAction? action;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: GlobalColors.surface(context),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: GlobalColors.border(context)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
-            child: Row(
-              children: [
-                Icon(icon, size: 18, color: GlobalColors.accentSoft),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: GlobalColors.textPrimary(context),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
-                const Spacer(),
-                if (action != null)
-                  TextButton.icon(
-                    onPressed: action!.onTap,
-                    icon: Icon(action!.icon, size: 16),
-                    label: Text(action!.label),
-                    style: TextButton.styleFrom(
-                      foregroundColor: GlobalColors.accentSoft,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          Divider(height: 1, color: GlobalColors.border(context)),
-          Padding(padding: const EdgeInsets.all(12), child: child),
         ],
       ),
     );
@@ -805,16 +1104,10 @@ class _Section extends StatelessWidget {
 
 // ─────────────────────────────────────────────
 //  MINI TABLE — جدول مصغّر
-//  The profile shows a capped recent slice, so it
-//  needs headers and rows but none of AppTable's
-//  paging machinery.
 // ─────────────────────────────────────────────
+
 class _MiniTable extends StatelessWidget {
-  const _MiniTable({
-    required this.headers,
-    required this.rows,
-    required this.emptyLabel,
-  });
+  const _MiniTable({required this.headers, required this.rows, required this.emptyLabel});
 
   final List<String> headers;
   final List<List<String>> rows;
@@ -848,28 +1141,112 @@ class _MiniTable extends StatelessWidget {
               .toList(),
         ),
         const SizedBox(height: 6),
-        ...rows.map(
-          (r) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 7),
+        for (var i = 0; i < rows.length; i++)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+            decoration: BoxDecoration(
+              border: i == 0
+                  ? null
+                  : Border(top: BorderSide(color: GlobalColors.border(context).withValues(alpha: 0.6))),
+            ),
             child: Row(
-              children: r
+              children: rows[i]
                   .map(
                     (cell) => Expanded(
                       child: Text(
                         cell,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: GlobalColors.textPrimary(context),
-                          fontSize: 12.5,
-                        ),
+                        style: TextStyle(color: GlobalColors.textPrimary(context), fontSize: 12.5),
                       ),
                     ),
                   )
                   .toList(),
             ),
           ),
-        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  RATINGS — التقييمات
+// ─────────────────────────────────────────────
+
+class _RatingList extends StatelessWidget {
+  const _RatingList({required this.ratings, required this.given});
+
+  final List<SessionRating> ratings;
+
+  /// True on a trainer's "assessments given" tab, where the interesting name
+  /// is the player assessed rather than the trainer who wrote it.
+  final bool given;
+
+  @override
+  Widget build(BuildContext context) {
+    if (ratings.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 22),
+        child: EmptyState(title: 'لا توجد تقييمات ضمن الفترة المحددة'),
+      );
+    }
+
+    return Column(
+      children: [
+        for (var i = 0; i < ratings.length; i++)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            decoration: BoxDecoration(
+              border: i == 0
+                  ? null
+                  : Border(top: BorderSide(color: GlobalColors.border(context).withValues(alpha: 0.6))),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                StarRating(value: ratings[i].stars, size: 15),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        given ? (ratings[i].rateeName ?? '—') : (ratings[i].raterName ?? '—'),
+                        style: TextStyle(
+                          color: GlobalColors.textPrimary(context),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      Text(
+                        ratings[i].isGeneral
+                            ? 'تقييم عام'
+                            : [ratings[i].membershipName, ratings[i].sessionDate]
+                                  .whereType<String>()
+                                  .join(' · '),
+                        style: TextStyle(color: GlobalColors.textSecondary(context), fontSize: 11),
+                      ),
+                      if (ratings[i].note != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          ratings[i].note!,
+                          style: TextStyle(
+                            color: GlobalColors.textPrimary(context),
+                            fontSize: 12.5,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Text(
+                  ratings[i].createdAt ?? '',
+                  style: TextStyle(color: GlobalColors.textSecondary(context), fontSize: 10.5),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -877,10 +1254,8 @@ class _MiniTable extends StatelessWidget {
 
 // ─────────────────────────────────────────────
 //  ENROLMENT LIST — قائمة الاشتراكات
-//  Rows carry their own actions because an
-//  enrolment is the one thing on this screen the
-//  desk changes in place.
 // ─────────────────────────────────────────────
+
 class _EnrollmentList extends StatelessWidget {
   const _EnrollmentList({
     required this.enrollments,
@@ -897,7 +1272,7 @@ class _EnrollmentList extends StatelessWidget {
     if (enrollments.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 22),
-        child: EmptyState(title: 'لا توجد اشتراكات'),
+        child: EmptyState(title: 'لا توجد اشتراكات ضمن الفترة المحددة'),
       );
     }
 
@@ -930,26 +1305,18 @@ class _EnrollmentList extends StatelessWidget {
                     ),
                     Text(
                       '${e.startDate ?? '—'} ← ${e.endDate ?? '—'}',
-                      style: TextStyle(
-                        color: GlobalColors.textSecondary(context),
-                        fontSize: 11,
-                      ),
+                      style: TextStyle(color: GlobalColors.textSecondary(context), fontSize: 11),
                     ),
                   ],
                 ),
               ),
               Expanded(child: _Chip(text: e.statusAr, color: color)),
-              if (pending && e.id != null)
-                TextButton(
-                  onPressed: () => onActivate(e.id!),
-                  child: const Text('تفعيل'),
-                ),
-              if (e.status != 'cancelled' && e.id != null)
+              if (pending && e.id != null && Permissions.canEnroll)
+                TextButton(onPressed: () => onActivate(e.id!), child: const Text('تفعيل')),
+              if (e.status != 'cancelled' && e.id != null && Permissions.canEnroll)
                 TextButton(
                   onPressed: () => onCancel(e.id!),
-                  style: TextButton.styleFrom(
-                    foregroundColor: GlobalColors.red,
-                  ),
+                  style: TextButton.styleFrom(foregroundColor: GlobalColors.red),
                   child: const Text('إلغاء'),
                 ),
             ],
@@ -962,12 +1329,12 @@ class _EnrollmentList extends StatelessWidget {
 
 // ─────────────────────────────────────────────
 //  ENROL DIALOG — تسجيل اشتراك
-//  The action the panel was missing entirely:
-//  put a member on a membership and take the
-//  money for it. Both legs go to the server as
-//  one transactional call, so a failed payment
-//  can't leave a stranded enrolment behind.
+//  Put a member on a package and take the money
+//  for it. Both legs go to the server as one
+//  transactional call, so a failed payment can't
+//  leave a stranded enrolment behind.
 // ─────────────────────────────────────────────
+
 void showEnrollDialog(BuildContext ctx, ProfileCubit c) {
   c.resetEnrollForm();
 
@@ -980,9 +1347,7 @@ void showEnrollDialog(BuildContext ctx, ProfileCubit c) {
           final memberships = AppGlobals.memberships
               .where((m) => m.status == 'active' || m.status == null)
               .toList();
-          final picked = memberships
-              .where((m) => m.id == c.formMembershipId)
-              .firstOrNull;
+          final picked = memberships.where((m) => m.id == c.formMembershipId).firstOrNull;
 
           return AppDialog<ProfileCubit>(
             title: 'تسجيل اشتراك',
@@ -997,18 +1362,13 @@ void showEnrollDialog(BuildContext ctx, ProfileCubit c) {
                   value: c.formMembershipId,
                   items: memberships.map((m) => m.id!).toList(),
                   labelOf: AppGlobals.membershipName,
-                  label: 'الاشتراك',
+                  label: 'الباقة',
                   icon: Icons.card_membership_rounded,
-                  emptyLabel: 'اختر الاشتراك',
+                  emptyLabel: 'اختر الباقة',
                   onChanged: (v) => setLocal(() => c.pickMembership(v)),
                 ),
                 const SizedBox(height: 12),
-
-                // The membership carries the price and the duration, so once
-                // one is picked there is nothing left to type in the normal
-                // case. Shown here so the desk can see what it's committing
-                // to before saving.
-                if (picked != null)
+                if (picked != null) ...[
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
@@ -1027,15 +1387,14 @@ void showEnrollDialog(BuildContext ctx, ProfileCubit c) {
                       ),
                     ),
                   ),
-                if (picked != null) const SizedBox(height: 12),
-
+                  const SizedBox(height: 12),
+                ],
                 DateField(
                   value: c.startCont.text.isEmpty ? null : c.startCont.text,
                   label: 'تاريخ البدء (اختياري — يبدأ اليوم)',
                   onPicked: (v) => setLocal(() => c.startCont.text = v),
                 ),
                 const SizedBox(height: 12),
-
                 AppSwitch(
                   value: c.collectPayment,
                   label: 'تحصيل الدفعة الآن',
@@ -1044,7 +1403,6 @@ void showEnrollDialog(BuildContext ctx, ProfileCubit c) {
                       : 'سيبقى الاشتراك بانتظار الدفع حتى تُسجَّل دفعته.',
                   onChanged: (v) => setLocal(() => c.collectPayment = v),
                 ),
-
                 if (c.collectPayment) ...[
                   const SizedBox(height: 12),
                   AppField(
@@ -1052,7 +1410,7 @@ void showEnrollDialog(BuildContext ctx, ProfileCubit c) {
                     label: 'المبلغ',
                     icon: Icons.payments_rounded,
                     isNumber: true,
-                    hint: 'يُعبَّأ من سعر الاشتراك — عدّله عند الحاجة',
+                    hint: 'يُعبَّأ من سعر الباقة — عدّله عند الحاجة',
                   ),
                   const SizedBox(height: 12),
                   AppDropdown<int>(
@@ -1074,8 +1432,7 @@ void showEnrollDialog(BuildContext ctx, ProfileCubit c) {
                     labelOf: (s) => s == 'success' ? 'محصّلة' : 'معلّقة',
                     label: 'حالة الدفعة',
                     icon: Icons.verified_rounded,
-                    onChanged: (v) =>
-                        setLocal(() => c.formPaymentStatus = v ?? 'success'),
+                    onChanged: (v) => setLocal(() => c.formPaymentStatus = v ?? 'success'),
                   ),
                   const SizedBox(height: 12),
                   AppField(

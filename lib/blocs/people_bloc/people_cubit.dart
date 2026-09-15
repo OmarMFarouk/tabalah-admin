@@ -8,13 +8,15 @@ import '../../models/users_model.dart';
 import '../../services/apis/people_api.dart';
 import '../../services/apis/settings_api.dart';
 import '../../src/app_globals.dart';
+import '../../src/app_permissions.dart';
 import '../base_states.dart';
 
 // ─────────────────────────────────────────────
-//  PEOPLE TABS — تبويبات الأشخاص
+//  PEOPLE TABS — تبويبات الأفراد
 //  Accounts, members, coaches and staff are one
 //  page: they're the same object seen four ways.
 // ─────────────────────────────────────────────
+
 enum PeopleTab { accounts, members, trainers, staff }
 
 extension PeopleTabX on PeopleTab {
@@ -35,6 +37,7 @@ extension PeopleTabX on PeopleTab {
 
 class PeopleCubit extends Cubit<AppStates> {
   PeopleCubit() : super(AppInitial());
+
   static PeopleCubit get(context) => BlocProvider.of(context);
 
   final PeopleApi _api = PeopleApi();
@@ -45,6 +48,9 @@ class PeopleCubit extends Cubit<AppStates> {
   String? roleFilter;
   String? statusFilter;
   int? sportFilter;
+
+  /// Members tab only: just the members with a declared health condition.
+  bool healthOnly = false;
   int page = 1;
 
   // ── Data — البيانات ─────────────────────────
@@ -69,6 +75,16 @@ class PeopleCubit extends Cubit<AppStates> {
   final weightCont = TextEditingController();
   final emergencyCont = TextEditingController();
   final avatarUrlCont = TextEditingController();
+
+  /// The member's declared health condition. Only drawn, and only sent, for
+  /// accounts holding people.health.view.
+  final healthCont = TextEditingController();
+
+  // HR — what an employment letter states. Trainers and staff only.
+  final bankNameCont = TextEditingController();
+  final accountNumberCont = TextEditingController();
+  final ibanCont = TextEditingController();
+  String? formHiredAt;
 
   /// A picture chosen from disk but not uploaded yet. Nothing goes up until
   /// the form is saved, so cancelling leaves the account untouched — and on
@@ -103,13 +119,10 @@ class PeopleCubit extends Cubit<AppStates> {
 
     emit(AppLoaded());
   }
+
   String formRole = 'player';
   int? formSportId;
   String formStatus = 'active';
-
-  /// Whether the add form is promoting an existing account rather than
-  /// creating one. Defaults to false: creating is the common case, and
-  /// leading with a searchable dropdown made it look like the only case.
 
   void clearForm() {
     for (final c in [
@@ -125,6 +138,10 @@ class PeopleCubit extends Cubit<AppStates> {
       weightCont,
       emergencyCont,
       avatarUrlCont,
+      healthCont,
+      bankNameCont,
+      accountNumberCont,
+      ibanCont,
     ]) {
       c.clear();
     }
@@ -134,7 +151,46 @@ class PeopleCubit extends Cubit<AppStates> {
     pendingAvatarPath = null;
     formSportId = null;
     formStatus = 'active';
+    formHiredAt = null;
   }
+
+  /// Pre-fills the HR half of the trainer or staff form.
+  void fillPayroll(PayrollDetails record) {
+    formHiredAt = record.hiredAt;
+    bankNameCont.text = record.bankName ?? '';
+    accountNumberCont.text = record.accountNumber ?? '';
+    ibanCont.text = record.iban ?? '';
+  }
+
+  /// The HR fields for a trainer or staff write.
+  ///
+  /// Sent only by HR — the server drops them from anyone else — and sent
+  /// even when blank, so emptying a field clears it rather than keeping the
+  /// old account number.
+  Map<String, dynamic> _payroll({bool withSalary = false}) {
+    if (!Permissions.canSeeHr) return const {};
+
+    String? text(TextEditingController c) =>
+        c.text.trim().isEmpty ? null : c.text.trim();
+
+    return {
+      'hired_at': formHiredAt,
+      'bank_name': text(bankNameCont),
+      'account_number': text(accountNumberCont),
+      'iban': text(ibanCont)?.replaceAll(' ', '').toUpperCase(),
+      if (withSalary && salaryCont.text.trim().isNotEmpty)
+        'salary': double.tryParse(salaryCont.text.trim()),
+    };
+  }
+
+  /// The health note, when this account may write it.
+  Map<String, dynamic> get _health => Permissions.canSeeHealth
+      ? {
+          'health_condition': healthCont.text.trim().isEmpty
+              ? null
+              : healthCont.text.trim(),
+        }
+      : const {};
 
   void switchTab(PeopleTab t) {
     tab = t;
@@ -143,6 +199,7 @@ class PeopleCubit extends Cubit<AppStates> {
     roleFilter = null;
     statusFilter = null;
     sportFilter = null;
+    healthOnly = false;
     emit(AppInitial());
     fetch();
   }
@@ -162,6 +219,12 @@ class PeopleCubit extends Cubit<AppStates> {
       if (status != null) statusFilter = status == '' ? null : status;
       if (sport != null) sportFilter = sport == -1 ? null : sport;
     }
+    page = 1;
+    fetch();
+  }
+
+  void toggleHealthOnly() {
+    healthOnly = !healthOnly;
     page = 1;
     fetch();
   }
@@ -197,7 +260,7 @@ class PeopleCubit extends Cubit<AppStates> {
         break;
 
       case PeopleTab.members:
-        final r = await _api.fetchPlayers(q: q, page: page);
+        final r = await _api.fetchPlayers(q: q, page: page, healthOnly: healthOnly);
         if (!r.success) return emit(AppFailure(msg: r.message));
         players = Paginated.read<PlayerProfile>(
           r.body,
@@ -246,7 +309,6 @@ class PeopleCubit extends Cubit<AppStates> {
     emit(AppLoaded());
   }
 
-  // ── Accounts — الحسابات ─────────────────────
   // ── Role assignment — إسناد الأدوار ─────────
   //  Deliberately its own call rather than a field on the edit form.
   //  Re-roling somebody is a different act from correcting their phone
@@ -265,6 +327,7 @@ class PeopleCubit extends Cubit<AppStates> {
     await fetch();
   }
 
+  // ── Accounts — الحسابات ─────────────────────
   Future<void> saveUser({int? id}) async {
     final data = <String, dynamic>{
       'name': nameCont.text.trim(),
@@ -415,44 +478,33 @@ class PeopleCubit extends Cubit<AppStates> {
   );
 
   // ── Members — الأعضاء ───────────────────────
-  /// Physical details only — the account behind the member is edited from
-  /// the accounts tab.
+  /// Physical and health details only — the account behind the member is
+  /// edited from the accounts tab.
   Future<void> savePlayer(int id) => _write(
     () => _api.updatePlayer(id, {
       if (heightCont.text.isNotEmpty) 'height': double.tryParse(heightCont.text),
       if (weightCont.text.isNotEmpty) 'weight': double.tryParse(weightCont.text),
       if (emergencyCont.text.isNotEmpty)
         'emergency_contact': emergencyCont.text.trim(),
+      ..._health,
     }),
     'تم تحديث بيانات العضو.',
   );
 
-  /// Add a member in one step.
-  ///
-  /// Signing somebody up at the desk used to take two screens: create the
-  /// account somewhere else, then come back and find it in a dropdown.
-  /// Always creates the account alongside the member. Attaching a member
-  /// profile to an existing login was a second path through this form that
-  /// nobody used, and it has been removed.
+  /// Add a member in one step, account and all.
   Future<void> createPlayer() {
     final data = <String, dynamic>{
+      'name': nameCont.text.trim(),
+      'name_en': nameEnCont.text.trim().isEmpty ? null : nameEnCont.text.trim(),
+      'email': emailCont.text.trim(),
+      'password': passwordCont.text,
+      if (phoneCont.text.trim().isNotEmpty) 'phone': phoneCont.text.trim(),
       if (heightCont.text.isNotEmpty) 'height': double.tryParse(heightCont.text),
       if (weightCont.text.isNotEmpty) 'weight': double.tryParse(weightCont.text),
       if (emergencyCont.text.trim().isNotEmpty)
         'emergency_contact': emergencyCont.text.trim(),
+      ..._health,
     };
-
-    {
-      data['name'] = nameCont.text.trim();
-      data['name_en'] = nameEnCont.text.trim().isEmpty
-          ? null
-          : nameEnCont.text.trim();
-      data['email'] = emailCont.text.trim();
-      data['password'] = passwordCont.text;
-      if (phoneCont.text.trim().isNotEmpty) {
-        data['phone'] = phoneCont.text.trim();
-      }
-    }
 
     return _write(() => _api.createPlayer(data), 'تمت إضافة العضو.');
   }
@@ -471,6 +523,7 @@ class PeopleCubit extends Cubit<AppStates> {
         if (phoneCont.text.trim().isNotEmpty) 'phone': phoneCont.text.trim(),
         if (bioCont.text.trim().isNotEmpty) 'bio': bioCont.text.trim(),
         'status': formStatus,
+        ..._payroll(withSalary: true),
       };
       await _write(() => _api.createTrainer(data), 'تم إضافة المدرب.');
     } else {
@@ -489,6 +542,7 @@ class PeopleCubit extends Cubit<AppStates> {
         'phone': phoneCont.text.trim(),
         if (passwordCont.text.isNotEmpty) 'password': passwordCont.text,
         'status': formStatus,
+        ..._payroll(withSalary: true),
       };
       await _write(() => _api.updateTrainer(id, data), 'تم حفظ التعديل.');
     }
@@ -516,6 +570,7 @@ class PeopleCubit extends Cubit<AppStates> {
           'salary': double.tryParse(salaryCont.text),
         if (formAccessRoleId != null) 'role_id': formAccessRoleId,
         'status': formStatus,
+        ..._payroll(),
       };
       await _write(() => _api.createEmployee(data), 'تم تعيين الموظف.');
     } else {
@@ -529,6 +584,7 @@ class PeopleCubit extends Cubit<AppStates> {
             : nameEnCont.text.trim(),
         if (formAccessRoleId != null) 'role_id': formAccessRoleId,
         'status': formStatus,
+        ..._payroll(),
       };
       await _write(() => _api.updateEmployee(id, data), 'تم حفظ التعديل.');
     }

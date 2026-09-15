@@ -3,15 +3,32 @@ import 'api_client.dart';
 
 // ─────────────────────────────────────────────
 //  PROFILE API — واجهة الملف الشخصي
-//  One aggregate read per account, plus the two
-//  writes the profile screen owns: enrolling a
-//  member, and changing an enrolment's state.
+//  A summary per account and period, one paged
+//  call per tab, plus the two writes the profile
+//  screen owns: enrolling a member, and changing
+//  an enrolment's state.
 // ─────────────────────────────────────────────
+
 class ProfileApi {
-  /// Everything the profile screen renders, in one call. The server shapes
-  /// the payload by role, so there is no per-role variant to pick here.
-  Future<ApiResponse> fetchProfile(dynamic userId) =>
-      ApiClient.get(AppEndPoints.userProfile(userId));
+  /// The header, stats and tab list for one account over [from]–[to]. Both
+  /// ends are optional; neither means all time.
+  Future<ApiResponse> fetchProfile(dynamic userId, {String? from, String? to}) =>
+      ApiClient.get(
+        AppEndPoints.userProfile(userId),
+        query: {'from': from, 'to': to},
+      );
+
+  /// One page of one tab, over the same period as the summary.
+  Future<ApiResponse> fetchSection(
+    dynamic userId,
+    String section, {
+    String? from,
+    String? to,
+    int page = 1,
+  }) => ApiClient.get(
+    AppEndPoints.userProfileSection(userId, section),
+    query: {'from': from, 'to': to, 'page': page, 'per_page': 10},
+  );
 
   /// Enrol a member and optionally take the payment in the same
   /// transaction. Two separate calls could leave an enrolment stranded
@@ -46,8 +63,5 @@ class ProfileApi {
   /// Cancel an enrolment, or activate one left pending after an offline
   /// payment.
   Future<ApiResponse> setEnrollmentStatus(dynamic id, String status) =>
-      ApiClient.put(
-        '${AppEndPoints.enrollments}/$id',
-        data: {'status': status},
-      );
+      ApiClient.put('${AppEndPoints.enrollments}/$id', data: {'status': status});
 }

@@ -20,7 +20,7 @@ extension FinanceTabX on FinanceTab {
   String get label => switch (this) {
     FinanceTab.payments => 'المدفوعات',
     FinanceTab.sources => 'وسائل الدفع',
-    FinanceTab.enrollments => 'التسجيلات',
+    FinanceTab.enrollments => 'الاشتراكات',
   };
 
   IconData get icon => switch (this) {
@@ -326,7 +326,7 @@ class FinanceCubit extends Cubit<AppStates> {
   Future<void> deleteSource(int id) =>
       _write(() => _api.deleteSource(id), 'تم حذف وسيلة الدفع.');
 
-  // ── Enrollments — التسجيلات ─────────────────
+  // ── Enrollments — الاشتراكات ─────────────────
   Future<void> saveEnrollment({int? id}) {
     final data = Enrollment(
       userId: formUserId,

@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import '../blocs/attendance_bloc/employee_attendance_cubit.dart';
 import '../blocs/base_states.dart';
 import '../src/app_colors.dart';
+import '../src/app_permissions.dart';
 
 // ─────────────────────────────────────────────
 //  حضور الموظفين — GPS clock-in register
@@ -257,7 +258,11 @@ class _FencePaneState extends State<_FencePane> {
                 ),
                 const SizedBox(height: 4),
                 FilledButton.icon(
-                  onPressed: (_pin == null || _saving) ? null : _save,
+                  // Moving the fence decides whose clock-ins count, so it
+                  // needs its own permission, not just the page.
+                  onPressed: (_pin == null || _saving || !Permissions.canManageStaffAttendance)
+                      ? null
+                      : _save,
                   icon: const Icon(Icons.save_rounded, size: 18),
                   label: Text(_saving ? 'جارٍ الحفظ…' : 'حفظ النطاق'),
                 ),

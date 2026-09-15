@@ -11,6 +11,17 @@ class AppEndPoints {
   static const String employeeAttendances = '$admin/employee-attendances';
   static const String geofence = '$admin/geofence';
 
+  // ── HR ──────────────────────────────────────
+  static const String overtime = '$admin/overtime';
+  static String overtimeRecord(dynamic id) => '$admin/overtime/$id';
+  // Returns a thirty-minute signed link to the printable letter.
+  static String employmentLetter(dynamic userId) =>
+      '$admin/users/$userId/employment-letter';
+
+  // One paged tab of the profile screen.
+  static String userProfileSection(dynamic id, String section) =>
+      '$admin/users/$id/profile/$section';
+
   /// Public on purpose - see AppReleaseController. The panel asks this
   /// before anyone signs in.
   static const String appRelease = '$endPoint/app-release/windows';

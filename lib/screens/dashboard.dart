@@ -92,14 +92,14 @@ class _DashboardView extends StatelessWidget {
                                 sub: 'طاقم التدريب',
                               ),
                               StatCard(
-                                label: 'الاشتراكات',
+                                label: 'الباقات',
                                 value: '${s?.memberships ?? 0}',
                                 icon: Icons.card_membership_rounded,
                                 color: GlobalColors.gold,
                                 sub: 'حصة وباقة',
                               ),
                               StatCard(
-                                label: 'التسجيلات',
+                                label: 'الاشتراكات',
                                 value: '${s?.enrollments ?? 0}',
                                 icon: Icons.assignment_turned_in_rounded,
                                 color: GlobalColors.green,

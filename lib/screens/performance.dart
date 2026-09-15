@@ -122,7 +122,7 @@ class _PerformanceView extends StatelessWidget {
                         sub: 'مقياس معرّف',
                       ),
                       StatCard(
-                        label: 'التسجيلات',
+                        label: 'سجلات الأداء',
                         value: '${c.records.total}',
                         icon: Icons.insights_rounded,
                         color: GlobalColors.accent,
@@ -296,7 +296,7 @@ class _PerformanceView extends StatelessWidget {
           emptyIcon: Icons.speed_rounded,
           columns: const [
             AppColumn('المؤشر', flex: 5),
-            AppColumn('عدد التسجيلات', flex: 2),
+            AppColumn('عدد السجلات', flex: 2),
             AppColumn('إجراءات', flex: 2),
           ],
           rowBuilder: (rc, k, i) => AppRow(

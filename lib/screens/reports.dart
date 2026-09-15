@@ -305,7 +305,7 @@ class _ReportsView extends StatelessWidget {
         'نسبة الحضور',
         r.attendanceRate,
         GlobalColors.green,
-        note: 'حضور + متأخر من إجمالي التسجيلات',
+        note: 'حضور + متأخر من إجمالي السجلات',
       ),
     ]),
     _spacer,

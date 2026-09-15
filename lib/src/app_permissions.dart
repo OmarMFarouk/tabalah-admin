@@ -83,6 +83,23 @@ class Permissions {
   static const rolesManage = 'settings.roles.manage';
   static const auditView = 'settings.audit.view';
 
+  static const healthView = 'people.health.view';
+  static const hrView = 'hr.view';
+  static const hrAttendanceManage = 'hr.attendance.manage';
+  static const overtimeManage = 'hr.overtime.manage';
+  static const lettersIssue = 'hr.letters.issue';
+  static const evaluationsView = 'evaluations.view';
+  static const evaluationsManage = 'evaluations.manage';
+
+  // ── HR, health & evaluations ────────────────
+  static bool get canSeeHealth => has(healthView);
+  static bool get canSeeHr => has(hrView);
+  static bool get canManageStaffAttendance => has(hrAttendanceManage);
+  static bool get canManageOvertime => has(overtimeManage);
+  static bool get canIssueLetters => has(lettersIssue);
+  static bool get canSeeEvaluations => has(evaluationsView);
+  static bool get canManageEvaluations => has(evaluationsManage);
+
   // ── The check ───────────────────────────────
 
   /// Whether the signed-in account holds [key].

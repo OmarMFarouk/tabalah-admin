@@ -157,11 +157,17 @@ class Attendance {
 // ─────────────────────────────────────────────
 class SessionRating {
   int? id;
+
+  /// Null for a general evaluation that is not about one session.
   int? sessionId;
+  String? sessionDate;
+  String? membershipName;
   int? userId;
   int? raterId;
   String? rateeName;
+  String? rateeRole;
   String? raterName;
+  String? raterRole;
   double? rating;
   String? note;
   String? createdAt;
@@ -169,10 +175,14 @@ class SessionRating {
   SessionRating({
     this.id,
     this.sessionId,
+    this.sessionDate,
+    this.membershipName,
     this.userId,
     this.raterId,
     this.rateeName,
+    this.rateeRole,
     this.raterName,
+    this.raterRole,
     this.rating,
     this.note,
     this.createdAt,
@@ -181,15 +191,21 @@ class SessionRating {
   factory SessionRating.fromJson(Map<String, dynamic> json) => SessionRating(
     id: asInt(json['id']),
     sessionId: asInt(json['session_id']),
+    sessionDate: asDate(json['session_date']),
+    membershipName: asString(json['membership_name']),
     userId: asInt(json['user_id']),
     raterId: asInt(json['rater_id']),
     rateeName: asString(json['ratee_name']),
+    rateeRole: asString(json['ratee_role']),
     raterName: asString(json['rater_name']),
+    raterRole: asString(json['rater_role']),
     // Half-stars are allowed — the API validates 0–5 as a decimal.
     rating: asDouble(json['rating']),
     note: asString(json['note']),
     createdAt: asDateTime(json['created_at']),
   );
+
+  bool get isGeneral => sessionId == null;
 
   Map<String, dynamic> toJson() => {if (note != null) 'note': note};
 
