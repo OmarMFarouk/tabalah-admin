@@ -30,6 +30,8 @@ class AppPresets {
     await instance.setAsFrameless();
     await instance.setMinimumSize(const Size(1100, 700));
     await instance.setAlignment(const Alignment(0, 0));
+    // Opens filling the screen: the panel is a full-day work surface.
+    await instance.maximize();
 
     myCursor = await CustomMouseCursor.asset(
       AppAssets.cursor,

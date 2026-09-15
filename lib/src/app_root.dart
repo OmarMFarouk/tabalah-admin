@@ -15,6 +15,8 @@ import '../components/general/update_dialog.dart';
 import '../services/update_service.dart';
 import 'app_globals.dart';
 import 'app_presets.dart';
+import 'app_secured.dart';
+import 'idle_guard.dart';
 
 class AppRoot extends StatelessWidget {
   const AppRoot({super.key});
@@ -218,7 +220,9 @@ class _GateState extends State<_Gate> {
   }
 
   Future<void> _restoreOnce() async {
-    await AuthCubit.get(context).restoreSession();
+    // Every launch starts signed out: the panel runs on shared desks, and a
+    // closed window must not leave the next person inside someone's account.
+    await AppSecured.delete(ApiClient.tokenKey);
     if (mounted) setState(() => _restoring = false);
 
     // After the session, not before: the check is cheap and never throws,
@@ -262,7 +266,9 @@ class _GateState extends State<_Gate> {
     return BlocBuilder<AuthCubit, AppStates>(
       builder: (context, state) {
         if (_restoring) return const SplashScreen();
-        return AppGlobals.isReady ? const MainDashboard() : const AuthScreen();
+        return AppGlobals.isReady
+            ? const IdleGuard(child: MainDashboard())
+            : const AuthScreen();
       },
     );
   }
